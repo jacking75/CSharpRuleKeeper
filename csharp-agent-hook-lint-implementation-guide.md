@@ -532,6 +532,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build\run-quality-gate.ps1
 
 이 저장소에는 HBCS001~HBCS014 Analyzer, HBCS004 Code Fix, 옵션 재정의, 생성 코드 제외, 테스트·벤치마크 프로젝트 예외, 샘플 소비 프로젝트, NuGet 패키징과 로컬 품질 게이트가 구현되어 있다. CI는 사용자의 명시적 요청이 없어 포함하지 않는다.
 
+처음 적용하는 사용자는 설치·`.editorconfig` 준비·규칙 예외 설정을 화면형 예제와 함께 설명하는 [초보자용 사용 안내서](docs/BEGINNER_GUIDE.html)를 먼저 참고한다.
+
 Analyzer 어셈블리는 명령줄 컴파일 환경에서 제공되지 않는 `Microsoft.CodeAnalysis.Workspaces`를 참조하지 않는다. Code Fix는 별도 `CSharpRuleKeeper.CodeFixes` 어셈블리로 분리하고, NuGet 패키지의 `analyzers/dotnet/cs` 경로에 Analyzer DLL과 함께 넣는다.
 
 테스트는 규칙별 통과·위반·예외 사례를 포함한다. 메서드 30/31/100/101줄과 타입 300/301/500/501줄의 물리 줄 수 경계, `.editorconfig` 옵션 변경, 생성 코드 제외, HBCS004 수정 후 재분석 결과를 검증한다.
