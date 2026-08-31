@@ -14,7 +14,7 @@ AI 코딩 에이전트 작업 완료
         │
         ├─ dotnet format --verify-no-changes  : 서식 검사
         ├─ dotnet test                         : 컴파일 및 회귀 검사
-        └─ PersonalCSharpRules.Analyzers       : 의미 규칙 및 크기 제한 검사
+        └─ CSharpRuleKeeper.Analyzers          : 의미 규칙 및 크기 제한 검사
                   │
                   ├─ 오류 없음 → 작업 완료
                   └─ 오류 있음 → 진단을 에이전트에 전달하여 수정 후 재실행
@@ -26,7 +26,7 @@ AI 코딩 에이전트 작업 완료
 - Roslyn Analyzer는 명명 규칙, 공용 필드 금지, 매직 넘버, 클래스·메서드 크기처럼 코드 의미를 이해해야 하는 규칙을 진단한다.
 - 긴 메서드·클래스를 자동으로 분할하는 것은 동작을 망가뜨릴 위험이 있으므로 자동 수정하지 않는다. 오류를 낸 뒤 AI 에이전트가 테스트를 통과하도록 리팩터링하게 한다.
 
-이 방식이면 규칙이 IDE, `dotnet build`, CI, AI 에이전트 훅에서 동일하게 동작한다.
+이 방식이면 규칙이 IDE, `dotnet build`, AI 에이전트 훅에서 동일하게 동작한다. CI 연결은 사용자가 명시적으로 요청한 경우에만 추가한다.
 
 ## 2. 첨부 규칙을 구현 가능한 정책으로 확정하기
 
@@ -53,24 +53,21 @@ AI 코딩 에이전트 작업 완료
 
 ## 3. 만들 결과물과 저장소 구조
 
-개인 규칙은 소스 프로젝트와 분리된 전용 저장소로 관리한다. 예시 이름은 `PersonalCSharpRules`다.
+개인 규칙은 소스 프로젝트와 분리된 전용 저장소로 관리한다. 이 구현의 이름은 `CSharpRuleKeeper`다.
 
 ```text
-PersonalCSharpRules/
+CSharpRuleKeeper/
 ├─ src/
-│  └─ PersonalCSharpRules.Analyzers/
-│     ├─ PersonalCSharpRules.Analyzers.csproj
-│     ├─ RuleIds.cs
-│     ├─ Naming/
-│     │  ├─ BooleanNameAnalyzer.cs
-│     │  └─ PublicFieldAnalyzer.cs
-│     ├─ Maintainability/
-│     │  ├─ MethodLengthAnalyzer.cs
-│     │  ├─ TypeLengthAnalyzer.cs
-│     │  └─ MagicNumberAnalyzer.cs
-│     └─ CodeFixes/                 # 안전한 수정만 여기에 둔다
+│  ├─ CSharpRuleKeeper.Analyzers/
+│  │  ├─ CSharpRuleKeeper.Analyzers.csproj
+│  │  ├─ RuleIds.cs
+│  │  ├─ Naming/
+│  │  ├─ Maintainability/
+│  │  ├─ Safety/
+│  │  └─ Style/
+│  └─ CSharpRuleKeeper.CodeFixes/   # Workspaces 참조를 Analyzer와 분리한다
 ├─ tests/
-│  └─ PersonalCSharpRules.Analyzers.Tests/
+│  └─ CSharpRuleKeeper.Analyzers.Tests/
 ├─ build/
 │  └─ run-quality-gate.ps1
 ├─ samples/
@@ -152,11 +149,11 @@ Analyzer는 C# 컴파일러가 만드는 구문 트리와 의미 모델을 읽�
 전용 저장소에서 다음 순서로 시작한다.
 
 ```powershell
-dotnet new sln --name PersonalCSharpRules
-dotnet new classlib --name PersonalCSharpRules.Analyzers --output src/PersonalCSharpRules.Analyzers
-dotnet new xunit --name PersonalCSharpRules.Analyzers.Tests --output tests/PersonalCSharpRules.Analyzers.Tests
-dotnet sln add src/PersonalCSharpRules.Analyzers/PersonalCSharpRules.Analyzers.csproj
-dotnet sln add tests/PersonalCSharpRules.Analyzers.Tests/PersonalCSharpRules.Analyzers.Tests.csproj
+dotnet new sln --name CSharpRuleKeeper
+dotnet new classlib --name CSharpRuleKeeper.Analyzers --output src/CSharpRuleKeeper.Analyzers
+dotnet new xunit --name CSharpRuleKeeper.Analyzers.Tests --output tests/CSharpRuleKeeper.Analyzers.Tests
+dotnet sln add src/CSharpRuleKeeper.Analyzers/CSharpRuleKeeper.Analyzers.csproj
+dotnet sln add tests/CSharpRuleKeeper.Analyzers.Tests/CSharpRuleKeeper.Analyzers.Tests.csproj
 ```
 
 Analyzer 프로젝트에는 다음 패키지를 추가한다.
@@ -193,6 +190,10 @@ Analyzer 프로젝트에는 다음 패키지를 추가한다.
 | HBCS008 | private 접근 제한자 명시 | info |
 | HBCS009 | 금지된 종료 주석 | warning |
 | HBCS010 | 한 줄을 초과한 연속 빈 줄 | warning |
+| HBCS011 | 정수 비트 폭이 불명확한 키워드 사용 | warning |
+| HBCS012 | 설정한 최대 줄 길이 초과 | warning |
+| HBCS013 | 인터페이스·특성·기반 타입·비동기 메서드 명명 | warning |
+| HBCS014 | private/internal 필드의 저장 방식별 접두사 | error |
 
 검사 기준은 코드에 상수로 박지 말고 `.editorconfig`의 analyzer option으로 읽는다. 프로젝트별로 예외가 가능해진다.
 
@@ -204,6 +205,9 @@ personal_csharp_rules.type_lines_warning = 300
 personal_csharp_rules.type_lines_error = 500
 personal_csharp_rules.max_line_length = 120
 personal_csharp_rules.allow_magic_numbers = -1,0,1,2
+personal_csharp_rules.analyze_test_projects = false
+personal_csharp_rules.public_field_allowed_attributes =
+personal_csharp_rules.type_length_excluded_suffixes =
 ```
 
 생성 코드와 외부 코드는 분석하지 않는다. 각 Analyzer에서 `context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None)`를 호출하고, `obj/`, `bin/`, `*.g.cs`, `*.Designer.cs`를 훅 입력에서 제외한다.
@@ -348,7 +352,7 @@ Analyzer 저장소를 수정 중이면 소비 프로젝트의 `.csproj`에 다�
 
 ```xml
 <ItemGroup>
-  <ProjectReference Include="..\PersonalCSharpRules\src\PersonalCSharpRules.Analyzers\PersonalCSharpRules.Analyzers.csproj"
+<ProjectReference Include="..\CSharpRuleKeeper\src\CSharpRuleKeeper.Analyzers\CSharpRuleKeeper.Analyzers.csproj"
                     OutputItemType="Analyzer"
                     ReferenceOutputAssembly="false" />
 </ItemGroup>
@@ -358,7 +362,7 @@ Analyzer 저장소를 수정 중이면 소비 프로젝트의 `.csproj`에 다�
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="PersonalCSharpRules.Analyzers"
+  <PackageReference Include="CSharpRuleKeeper"
                     Version="1.0.0"
                     PrivateAssets="all" />
 </ItemGroup>
@@ -449,10 +453,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build\run-quality-gate.ps1
 다음 우선순위로 대체한다.
 
 1. 에이전트 지시문에 품질 게이트 명령을 명시한다.
-2. CI에서 같은 스크립트를 필수 검사로 실행한다.
+2. 사용자가 CI를 명시적으로 요청한 경우에만 같은 스크립트를 필수 검사로 연결한다.
 3. Git pre-commit 훅에서 검증 모드만 실행한다.
 
-훅은 편의 기능이고, `dotnet build` 및 CI에 Analyzer가 연결되어 있어야 우회되지 않는다.
+훅은 편의 기능이고, `dotnet build`에 Analyzer가 연결되어 있어야 우회되지 않는다. CI는 사용자 요청이 있을 때만 구성한다.
 
 ## 11. 테스트 전략
 
@@ -474,7 +478,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build\run-quality-gate.ps1
 
 1. `.editorconfig`를 소비 프로젝트에 추가한다.
 2. `dotnet format --verify-no-changes`와 `dotnet build`를 로컬에서 통과시킨다.
-3. 품질 게이트 스크립트를 만들고 CI에서 실행한다.
+3. 품질 게이트 스크립트를 만들고 로컬에서 실행한다. CI 연결은 사용자의 명시적 요청이 있을 때만 수행한다.
 4. 기존 코드의 대량 서식 변경은 별도 커밋으로 분리한다.
 
 ### 2주차: 손쉬운 Analyzer
@@ -498,13 +502,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build\run-quality-gate.ps1
 
 ## 13. 완료 조건 체크리스트
 
-- [ ] `.editorconfig`가 모든 C# 프로젝트 루트에서 발견된다.
-- [ ] Analyzer 패키지가 빌드 시 로드되고 HBCS 진단이 표시된다.
-- [ ] 메서드 30/100줄, 타입 300/500줄 경계 테스트가 있다.
-- [ ] `dotnet format --verify-no-changes`, `dotnet build`, `dotnet test`가 품질 게이트에 포함된다.
-- [ ] 훅 실패 시 에이전트가 진단을 보고 재수정한다.
-- [ ] 자동 수정이 API·동작을 바꾸지 않는다.
-- [ ] CI도 같은 품질 게이트를 실행한다.
+- [x] `.editorconfig`가 모든 C# 프로젝트 루트에서 발견된다.
+- [x] Analyzer 패키지가 빌드 시 로드되고 HBCS 진단이 표시된다.
+- [x] 메서드 30/100줄, 타입 300/500줄 경계 테스트가 있다.
+- [x] `dotnet format --verify-no-changes`, `dotnet build`, `dotnet test`가 품질 게이트에 포함된다.
+- [x] 훅 실패 시 에이전트가 진단을 보고 재수정한다.
+- [x] 자동 수정이 API·동작을 바꾸지 않는다.
+- [x] 명시적 요청이 없어 CI 구성은 포함하지 않는다.
 
 ## 14. 권장 최종 정책
 
@@ -523,3 +527,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build\run-quality-gate.ps1
 - 규칙 원본: `C:/github_dev/CSharp-learning-docs-to-server-programmer/coding_rule.md`
 - `.editorconfig`와 Analyzer를 함께 사용하면 IDE와 빌드 환경에서 같은 규칙을 적용할 수 있다.
 - Codex의 공식 문서 검색에서는 이 환경의 범용 작업 완료 훅 설정 형식을 확인할 수 없었다. 따라서 10장의 명령은 특정 제품 문법이 아닌 이식 가능한 훅 실행 계약으로 작성했다. 실제 훅의 이벤트명과 설정 파일은 사용 중인 에이전트 제품 문서에 맞춰 연결해야 한다.
+
+## 15. 구현 완료 상태
+
+이 저장소에는 HBCS001~HBCS014 Analyzer, HBCS004 Code Fix, 옵션 재정의, 생성 코드 제외, 테스트·벤치마크 프로젝트 예외, 샘플 소비 프로젝트, NuGet 패키징과 로컬 품질 게이트가 구현되어 있다. CI는 사용자의 명시적 요청이 없어 포함하지 않는다.
+
+Analyzer 어셈블리는 명령줄 컴파일 환경에서 제공되지 않는 `Microsoft.CodeAnalysis.Workspaces`를 참조하지 않는다. Code Fix는 별도 `CSharpRuleKeeper.CodeFixes` 어셈블리로 분리하고, NuGet 패키지의 `analyzers/dotnet/cs` 경로에 Analyzer DLL과 함께 넣는다.
+
+테스트는 규칙별 통과·위반·예외 사례를 포함한다. 메서드 30/31/100/101줄과 타입 300/301/500/501줄의 물리 줄 수 경계, `.editorconfig` 옵션 변경, 생성 코드 제외, HBCS004 수정 후 재분석 결과를 검증한다.
