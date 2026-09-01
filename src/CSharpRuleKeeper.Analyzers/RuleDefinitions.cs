@@ -72,6 +72,20 @@ static class RuleDefinitions
         MaintainabilityCategory,
         DiagnosticSeverity.Error);
 
+    public static readonly DiagnosticDescriptor FileLengthWarning = Create(
+        RuleIds.FileLength,
+        "Source file is a refactoring candidate",
+        "Source file has {0} physical lines and exceeds the warning limit of {1}",
+        MaintainabilityCategory,
+        DiagnosticSeverity.Warning);
+
+    public static readonly DiagnosticDescriptor FileLengthError = Create(
+        RuleIds.FileLength,
+        "Source file is too long",
+        "Source file has {0} physical lines and exceeds the maximum of {1}",
+        MaintainabilityCategory,
+        DiagnosticSeverity.Error);
+
     public static readonly DiagnosticDescriptor ExplicitPrivate = Create(
         RuleIds.ExplicitPrivate,
         "Omit the private modifier",

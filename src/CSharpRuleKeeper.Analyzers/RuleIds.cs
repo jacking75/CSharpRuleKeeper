@@ -16,4 +16,5 @@ public static class RuleIds
     public const string LineLength = "HBCS012";
     public const string TypeNaming = "HBCS013";
     public const string FieldPrefix = "HBCS014";
+    public const string FileLength = "HBCS015";
 }

@@ -5,7 +5,7 @@ namespace SampleConsumer;
 
 sealed class RuleViolations
 {
-    public Int32 Count;
+    public Int32 Count = 0;
 
     public Boolean Ready { get; set; }
 }

@@ -1,0 +1,12 @@
+<Project>
+  <Target Name="ValidateCSharpRuleKeeperAnalyzerPath"
+          BeforeTargets="CoreCompile"
+          Condition="'$(CSharpRuleKeeperAnalyzerPath)' == '' Or !Exists('$(CSharpRuleKeeperAnalyzerPath)')">
+    <Error Text="CSharpRuleKeeper Analyzer DLL을 찾을 수 없습니다. Invoke-CSharpRuleKeeper.ps1로 실행해야 합니다." />
+  </Target>
+
+  <ItemGroup>
+    <Analyzer Include="$(CSharpRuleKeeperAnalyzerPath)"
+              Condition="Exists('$(CSharpRuleKeeperAnalyzerPath)')" />
+  </ItemGroup>
+</Project>

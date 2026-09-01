@@ -1,6 +1,7 @@
 param(
     [string]$Solution = "CSharpRuleKeeper.sln",
-    [switch]$Fix
+    [switch]$Fix,
+    [string]$AgentReportPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,10 +21,22 @@ if ($LASTEXITCODE -ne 0)
     exit $LASTEXITCODE
 }
 
-dotnet build $Solution --no-restore --configuration Debug
-if ($LASTEXITCODE -ne 0)
+$buildOutput = @(& dotnet build $Solution --no-restore --configuration Debug 2>&1 | ForEach-Object {
+    $_.ToString()
+})
+$buildExitCode = $LASTEXITCODE
+$buildOutput | ForEach-Object {
+    Write-Host $_
+}
+
+if ($AgentReportPath)
 {
-    exit $LASTEXITCODE
+    $buildOutput | & "$PSScriptRoot\New-CodingAgentChangeReport.ps1" -OutputPath $AgentReportPath -Target $Solution
+}
+
+if ($buildExitCode -ne 0)
+{
+    exit $buildExitCode
 }
 
 dotnet test $Solution --no-build --configuration Debug

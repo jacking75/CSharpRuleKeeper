@@ -273,6 +273,41 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
+    public async Task FileLength_enforces_all_default_boundaries()
+    {
+        var atWarningLimit = await GetFileDiagnosticsAsync(500);
+        var aboveWarningLimit = await GetFileDiagnosticsAsync(501);
+        var atErrorLimit = await GetFileDiagnosticsAsync(1000);
+        var aboveErrorLimit = await GetFileDiagnosticsAsync(1001);
+
+        Assert.Empty(atWarningLimit);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(aboveWarningLimit).Severity);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(atErrorLimit).Severity);
+        Assert.Equal(DiagnosticSeverity.Error, Assert.Single(aboveErrorLimit).Severity);
+    }
+
+    [Fact]
+    public async Task FileLength_honors_configured_limits_and_counts_comments_and_blank_lines()
+    {
+        Dictionary<string, string> options = new()
+        {
+            ["personal_csharp_rules.file_lines_warning"] = "3",
+            ["personal_csharp_rules.file_lines_error"] = "5",
+        };
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new FileLengthAnalyzer(),
+            BuildFile(6),
+            options);
+
+        Diagnostic diagnostic = Assert.Single(diagnostics);
+        Assert.Equal(RuleIds.FileLength, diagnostic.Id);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("6 physical lines", diagnostic.GetMessage());
+        Assert.Contains("maximum of 5", diagnostic.GetMessage());
+    }
+
+    [Fact]
     public async Task Generated_code_is_ignored_by_maintainability_analyzers()
     {
         const string source = """
@@ -290,12 +325,15 @@ public sealed class MaintainabilityAnalyzerTests
             ["personal_csharp_rules.method_lines_error"] = "2",
             ["personal_csharp_rules.type_lines_warning"] = "1",
             ["personal_csharp_rules.type_lines_error"] = "2",
+            ["personal_csharp_rules.file_lines_warning"] = "1",
+            ["personal_csharp_rules.file_lines_error"] = "2",
         };
         var analyzers = new Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer[]
         {
             new MagicNumberAnalyzer(),
             new MethodLengthAnalyzer(),
             new TypeLengthAnalyzer(),
+            new FileLengthAnalyzer(),
         };
 
         foreach (var analyzer in analyzers)
@@ -323,6 +361,14 @@ public sealed class MaintainabilityAnalyzerTests
         return AnalyzerTestHarness.GetDiagnosticsAsync(
             new TypeLengthAnalyzer(),
             BuildType(physicalLineCount, "Example"));
+    }
+
+    static Task<System.Collections.Immutable.ImmutableArray<Diagnostic>> GetFileDiagnosticsAsync(
+        int physicalLineCount)
+    {
+        return AnalyzerTestHarness.GetDiagnosticsAsync(
+            new FileLengthAnalyzer(),
+            BuildFile(physicalLineCount));
     }
 
     static string BuildMethod(int physicalLineCount)
@@ -353,6 +399,25 @@ public sealed class MaintainabilityAnalyzerTests
         }
 
         source.AppendLine("}");
+        return source.ToString();
+    }
+
+    static string BuildFile(int physicalLineCount)
+    {
+        StringBuilder source = new();
+        for (int index = 0; index < physicalLineCount; index++)
+        {
+            if (index % 2 == 0)
+            {
+                source.Append("// Physical file line.");
+            }
+
+            if (index < physicalLineCount - 1)
+            {
+                source.AppendLine();
+            }
+        }
+
         return source.ToString();
     }
 }
