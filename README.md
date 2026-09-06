@@ -1,133 +1,95 @@
 # CSharpRuleKeeper
 
-[한국어 README](README_kr.md)
+[한국어 README](README_kr.md) · [Beginner guide](docs/BEGINNER_GUIDE_en.html) · [Compatibility](docs/COMPATIBILITY.md)
 
-CSharpRuleKeeper checks C# code against personal coding rules and turns HBCS diagnostics into actionable Markdown guidance. Formatting is handled by `.editorconfig` and `dotnet format`; semantic rules are handled by Roslyn analyzers.
+CSharpRuleKeeper checks C# code without adding a `ProjectReference` or `PackageReference` to the target. It verifies whitespace, injects the Roslyn analyzer only for the current build, and writes both a human-readable Markdown report and structured JSON.
 
-- [Korean beginner guide](docs/BEGINNER_GUIDE.html)
-- [English beginner guide](docs/BEGINNER_GUIDE_en.html)
-- [Adoption improvement research and implementation plan (Korean)](docs/ADOPTION_IMPROVEMENT_PLAN.md)
+## Try it
 
-## Quick start for this repository
-
-Prerequisites: .NET SDK 10.0.400 or later and PowerShell.
+Prerequisites for the checked project are its own .NET SDK and Windows PowerShell 5.1. Development of this repository uses the .NET SDK 10.0.400 feature band with `latestFeature` roll-forward. Run the read-only doctor first:
 
 ```powershell
-dotnet restore CSharpRuleKeeper.sln
-.\build\run-quality-gate.ps1 -Solution .\CSharpRuleKeeper.sln
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1" -Doctor -Solution ".\MySolution.sln"
 ```
 
-The quality gate verifies formatting, builds the solution, and runs tests without changing source files by default.
-
-```text
-dotnet format --verify-no-changes → dotnet build → dotnet test
-```
-
-Use `-Fix` only when formatting changes have been reviewed.
-
-## Use as a standalone checker
-
-The target `.csproj` is not modified. `Invoke-CSharpRuleKeeper.ps1` builds the analyzer and injects it only for the current build; after it exits, the target project files are unchanged. Replace `C:\tools\CSharpRuleKeeper` with the actual path to this repository.
-
-### Check a solution or project
+Check a project or solution:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -OutputPath .\coding-agent-change-report.md
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1" -Solution ".\MySolution.sln" -OutputPath ".\coding-agent-change-report.md" -JsonOutputPath ".\coding-agent-change-report.json"
 ```
 
-The command writes HBCS locations and safe repair guidance to `coding-agent-change-report.md`. A non-zero exit code is expected when the build contains errors.
+Exit codes are `0` for a completed policy pass, `1` when the target build completed with policy diagnostics, and `2` for execution, configuration, format, or analysis-completion failure. Zero HBCS diagnostics does not prove that analysis completed; inspect `analysisCompleted` and `executionErrors` in JSON.
 
-### Apply formatting, then check
+The default command runs `dotnet format whitespace --verify-no-changes` and does not modify source, project, or settings files. `-Fix` runs `dotnet format whitespace` only. It does not apply naming fixes, external analyzer fixes, or semantic changes. One-line brace style is diagnosed by configured analyzers/style rules but is not promised to be fixed by whitespace mode.
 
-`-Fix` runs `dotnet format` only. It never makes semantic changes such as changing a public API, serialization contract, external protocol string, or exception behavior.
+## Practice safely
+
+Copy the repository or sample before editing it. This command intentionally enables HBCS001 and HBCS002 and normally exits non-zero:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -OutputPath .\coding-agent-change-report.md -Fix
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\build\Invoke-CSharpRuleKeeper.ps1" -Solution ".\samples\SampleConsumer\SampleConsumer.csproj" -DefineConstants "DEMONSTRATE_RULES" -OutputPath ".\sample-practice-report.md"
 ```
 
-### Explain `.editorconfig` options
+Encapsulate `Count` only after reviewing serialization/API compatibility, rename `Ready` to `IsReady`, run tests, and recheck. HBCS004 has a safe IDE Code Fix, but temporary command-line analyzer injection does not install that Code Fix into an IDE.
+
+## Configuration and gradual adoption
+
+Use `-ExplainEditorConfig` to read the option catalog without modifying a target. Invalid length pairs, including non-positive, overflow, or `warning >= error`, restore both values to defaults. `analyze_test_projects` currently affects HBCS005 and identifies tests by assembly-name suffix.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -ExplainEditorConfig
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\build\Invoke-CSharpRuleKeeper.ps1" -ExplainEditorConfig -OptionsDocumentationPath ".\options.md"
 ```
 
-Write the same explanation to Markdown without changing the target `.editorconfig`.
+Review [personal and team-starter presets](config/presets), the [adoption guide](docs/ADOPTION_GUIDE.md), and the [baseline contract](docs/BASELINE.md). Presets are examples and are never copied over user configuration automatically. `TreatWarningsAsErrors` may make warnings fail a target build.
+
+Create and use an explicit baseline:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -ExplainEditorConfig -OptionsDocumentationPath .\CSharpRuleKeeper-editorconfig-options.md
+.\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\csharprulekeeper-baseline.json -CreateBaseline
+.\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\csharprulekeeper-baseline.json
 ```
-
-### Customize rules in the target project
-
-```ini
-[*.{cs,csx}]
-personal_csharp_rules.method_lines_warning = 30
-personal_csharp_rules.method_lines_error = 100
-personal_csharp_rules.type_lines_warning = 300
-personal_csharp_rules.type_lines_error = 500
-personal_csharp_rules.file_lines_warning = 500
-personal_csharp_rules.file_lines_error = 1000
-personal_csharp_rules.max_line_length = 120
-personal_csharp_rules.allow_magic_numbers = -1,0,1,2
-personal_csharp_rules.analyze_test_projects = false
-personal_csharp_rules.public_field_allowed_attributes =
-personal_csharp_rules.type_length_excluded_suffixes =
-```
-
-Child folders can override these values with a closer `.editorconfig`. Use `-ExplainEditorConfig` or the beginner guides for the full option reference.
 
 ## Rules
 
-| ID | Check | Default severity or threshold |
+| ID | Check | Default |
 | --- | --- | --- |
-| HBCS001 | Public fields | error |
-| HBCS002 | Boolean state names | warning |
-| HBCS003 | Collection names must be plural | warning |
-| HBCS004 | Use `nameof` in verified identifier-string contexts | warning |
-| HBCS005 | Magic numbers | warning |
-| HBCS006 | Method physical length | 30-line warning, over 100 error |
-| HBCS007 | Type physical length | 300-line warning, over 500 error |
-| HBCS008 | Redundant `private` | info |
-| HBCS009–HBCS014 | Comments, blank lines, type names, line length, naming, and field prefixes | info, warning, or error |
-| HBCS015 | Total physical lines in a `.cs` file | over 500 warning, over 1,000 error |
+| [HBCS001](docs/rules/HBCS001.md) | Public fields | error |
+| [HBCS002](docs/rules/HBCS002.md) | Boolean state names | warning |
+| [HBCS003](docs/rules/HBCS003.md) | Collection plural names | warning |
+| [HBCS004](docs/rules/HBCS004.md) | `nameof` in verified contexts | warning |
+| [HBCS005](docs/rules/HBCS005.md) | Magic numbers | warning |
+| [HBCS006](docs/rules/HBCS006.md) | Method physical lines | >30 warning, >100 error |
+| [HBCS007](docs/rules/HBCS007.md) | Type physical lines | >300 warning, >500 error |
+| [HBCS008](docs/rules/HBCS008.md) | Redundant `private` | info |
+| [HBCS009](docs/rules/HBCS009.md) | Trailing comments | warning |
+| [HBCS010](docs/rules/HBCS010.md) | Consecutive blank lines | warning |
+| [HBCS011](docs/rules/HBCS011.md) | Explicit-width integer names | warning |
+| [HBCS012](docs/rules/HBCS012.md) | Line length | >120 warning |
+| [HBCS013](docs/rules/HBCS013.md) | Required naming patterns | warning |
+| [HBCS014](docs/rules/HBCS014.md) | Field prefixes | error |
+| [HBCS015](docs/rules/HBCS015.md) | Source-file physical lines | >500 warning, >1000 error |
 
-Generated files (`*.g.cs` and `*.Designer.cs`) are not analyzed. HBCS015 includes comments and blank lines.
+Generated `*.g.cs` and `*.Designer.cs` files are not analyzed. See each rule page for exceptions, boundary behavior, fixes, and contract risks.
 
-## PowerShell scripts in `build`
+## Reports, bundles, and repository development
 
-| Script | Purpose | Direct use |
-| --- | --- | --- |
-| `Invoke-CSharpRuleKeeper.ps1` | Checks another solution or project and writes the HBCS Markdown report. Supports `-Fix`, `-DefineConstants`, and `-ExplainEditorConfig`. | Normal use and coding-agent hooks. |
-| `Show-CSharpRuleKeeperOptions.ps1` | Shows `.editorconfig` option formats, defaults, and diagnostics. | Usually run through `Invoke-CSharpRuleKeeper.ps1 -ExplainEditorConfig`. |
-| `run-quality-gate.ps1` | Verifies formatting, build, and tests for this repository. | When developing CSharpRuleKeeper itself. |
-| `New-CodingAgentChangeReport.ps1` | Converts existing build output containing HBCS diagnostics into repair guidance. | Usually called automatically. |
+SARIF 2.1 compiler logs are the primary diagnostic source; console parsing remains a compatibility fallback and produces `unknown` unless completion is otherwise proven. Results are stably sorted, capped only for Markdown display with `-MaxDiagnostics`, and fully retained in JSON according to [schema v1](docs/report-schema-v1.json).
 
-For an external project, use `Invoke-CSharpRuleKeeper.ps1`. `New-CodingAgentChangeReport.ps1` does not inject the analyzer and is only a report-generation helper.
-
-## Practice with the included sample
-
-`samples/SampleConsumer/RuleViolations.cs` contains intentional violations excluded from the normal build. This command enables them and intentionally fails with HBCS001 and HBCS002 while creating a report.
+Create a source-independent local ZIP and checksum with:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\samples\SampleConsumer\SampleConsumer.csproj -DefineConstants DEMONSTRATE_RULES -OutputPath .\sample-practice-report.md
+.\build\Publish-CSharpRuleKeeperBundle.ps1 -Version 1.1.0
 ```
 
-Change `Count` to an encapsulated property and rename `Ready` to `IsReady`, then run the command again.
+The bundle reuses its Release analyzer DLL. It still requires the target's SDK. No public NuGet/.NET tool installation command is documented because publication has not been verified. See [releasing](docs/RELEASING.md), [performance](docs/PERFORMANCE.md), [support](SUPPORT.md), and [contributing](CONTRIBUTING.md).
 
-## Repository layout
+Repository development validation is broader than an external check:
 
-```text
-src/CSharpRuleKeeper.Analyzers/         Roslyn analyzers
-src/CSharpRuleKeeper.CodeFixes/         HBCS004 code fix and NuGet packaging
-tests/CSharpRuleKeeper.Analyzers.Tests/ Rule tests
-samples/SampleConsumer/                 Consumer project for rule-violation practice
-build/Invoke-CSharpRuleKeeper.ps1       Standalone checker for other solutions
-build/Show-CSharpRuleKeeperOptions.ps1  Console and Markdown option reference
-build/run-quality-gate.ps1              This repository's format/build/test gate
-build/New-CodingAgentChangeReport.ps1   HBCS Markdown repair guidance generator
-build/CSharpRuleKeeper.targets          Temporary MSBuild analyzer injection target
-docs/BEGINNER_GUIDE.html                Korean beginner guide
-docs/BEGINNER_GUIDE_en.html             English beginner guide
+```powershell
+dotnet format --verify-no-changes
+dotnet build
+dotnet test
+.\build\run-quality-gate.ps1
 ```
 
-For design and implementation details, see [the implementation guide](csharp-agent-hook-lint-implementation-guide.md).
+The quality gate also runs isolated external-project integration tests. It does not create CI configuration. Design details are in the [implementation guide](csharp-agent-hook-lint-implementation-guide.md).

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "options": [
+    { "name": "method_lines_warning", "type": "positiveInteger", "default": "30", "diagnostics": ["HBCS006"], "descriptionKo": "메서드가 초과하면 경고한다.", "descriptionEn": "Warns when a method exceeds the limit." },
+    { "name": "method_lines_error", "type": "integerGreaterThanWarning", "default": "100", "diagnostics": ["HBCS006"], "descriptionKo": "메서드가 초과하면 오류로 진단한다.", "descriptionEn": "Reports an error when a method exceeds the limit." },
+    { "name": "type_lines_warning", "type": "positiveInteger", "default": "300", "diagnostics": ["HBCS007"], "descriptionKo": "타입이 초과하면 경고한다.", "descriptionEn": "Warns when a type exceeds the limit." },
+    { "name": "type_lines_error", "type": "integerGreaterThanWarning", "default": "500", "diagnostics": ["HBCS007"], "descriptionKo": "타입이 초과하면 오류로 진단한다.", "descriptionEn": "Reports an error when a type exceeds the limit." },
+    { "name": "file_lines_warning", "type": "positiveInteger", "default": "500", "diagnostics": ["HBCS015"], "descriptionKo": "파일이 초과하면 경고한다.", "descriptionEn": "Warns when a source file exceeds the limit." },
+    { "name": "file_lines_error", "type": "integerGreaterThanWarning", "default": "1000", "diagnostics": ["HBCS015"], "descriptionKo": "파일이 초과하면 오류로 진단한다.", "descriptionEn": "Reports an error when a source file exceeds the limit." },
+    { "name": "max_line_length", "type": "positiveInteger", "default": "120", "diagnostics": ["HBCS012"], "descriptionKo": "물리 줄의 최대 문자 수다.", "descriptionEn": "Maximum characters in a physical line." },
+    { "name": "allow_magic_numbers", "type": "commaSeparatedNumbers", "default": "-1,0,1,2", "diagnostics": ["HBCS005"], "descriptionKo": "매직 넘버 검사 예외 목록이다.", "descriptionEn": "Values excluded from magic-number analysis." },
+    { "name": "analyze_test_projects", "type": "boolean", "default": "false", "diagnostics": ["HBCS005"], "descriptionKo": "어셈블리 이름 접미사로 판단한 테스트 프로젝트도 검사한다.", "descriptionEn": "Analyzes test projects identified by assembly-name suffix." },
+    { "name": "public_field_allowed_attributes", "type": "commaSeparatedTypeNames", "default": "", "diagnostics": ["HBCS001"], "descriptionKo": "public 필드 허용 특성 이름이다.", "descriptionEn": "Attribute names that allow public fields." },
+    { "name": "type_length_excluded_suffixes", "type": "commaSeparatedSuffixes", "default": "", "diagnostics": ["HBCS007"], "descriptionKo": "타입 길이 검사 제외 접미사다.", "descriptionEn": "Type-name suffixes excluded from length analysis." }
+  ]
+}

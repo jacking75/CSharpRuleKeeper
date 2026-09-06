@@ -77,6 +77,11 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
             return;
         }
 
+        if (AnalysisUtilities.IsExternalContract(parameter.ContainingSymbol))
+        {
+            return;
+        }
+
         if (parameter.RefKind == RefKind.Out &&
             parameter.ContainingSymbol is IMethodSymbol containingMethod &&
             containingMethod.Name.StartsWith("Try", StringComparison.Ordinal))
@@ -100,7 +105,9 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
             declaration,
             context.CancellationToken);
 
-        if (property is null || !AnalysisUtilities.IsBoolean(property.Type))
+        if (property is null ||
+            !AnalysisUtilities.IsBoolean(property.Type) ||
+            AnalysisUtilities.IsExternalContract(property))
         {
             return;
         }
@@ -121,7 +128,9 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
             declaration,
             context.CancellationToken);
 
-        if (method is null || !AnalysisUtilities.IsBoolean(method.ReturnType))
+        if (method is null ||
+            !AnalysisUtilities.IsBoolean(method.ReturnType) ||
+            AnalysisUtilities.IsExternalContract(method))
         {
             return;
         }

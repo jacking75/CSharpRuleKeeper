@@ -149,6 +149,6 @@ static class RuleDefinitions
             category,
             severity,
             isEnabledByDefault: true,
-            helpLinkUri: $"https://github.com/heungbae/CSharpRuleKeeper#diagnostic-{id.ToLowerInvariant()}");
+            helpLinkUri: $"https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/rules/{id}.md");
     }
 }

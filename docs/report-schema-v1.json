@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/report-schema-v1.json",
+  "title": "CSharpRuleKeeper report v1",
+  "type": "object",
+  "required": ["schemaVersion", "toolVersion", "runId", "target", "status", "formatStatus", "buildExitCode", "analysisStatus", "analysisCompleted", "diagnostics", "executionErrors"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "toolVersion": { "type": "string" },
+    "runId": { "type": "string" },
+    "target": { "type": ["string", "null"] },
+    "configurationHash": { "type": ["string", "null"] },
+    "status": { "enum": ["passed", "failed"] },
+    "formatStatus": { "enum": ["passed", "failed", "notRun", "unknown"] },
+    "buildExitCode": { "type": "integer" },
+    "analysisStatus": { "enum": ["passed", "failed", "notRun", "unknown"] },
+    "analysisCompleted": { "type": "boolean" },
+    "timings": { "type": ["object", "null"], "additionalProperties": { "type": "integer", "minimum": 0 } },
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } },
+    "executionErrors": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "diagnostic": {
+      "type": "object",
+      "required": ["ruleId", "severity", "path", "line", "column", "message", "helpUri", "requiresContractReview"],
+      "properties": {
+        "ruleId": { "pattern": "^HBCS[0-9]{3}$" },
+        "severity": { "enum": ["error", "warning", "info", "hidden"] },
+        "project": { "type": ["string", "null"] },
+        "targetFramework": { "type": ["string", "null"] },
+        "path": { "type": ["string", "null"] },
+        "line": { "type": ["integer", "null"], "minimum": 1 },
+        "column": { "type": ["integer", "null"], "minimum": 1 },
+        "message": { "type": "string" },
+        "helpUri": { "type": "string" },
+        "requiresContractReview": { "type": "boolean" }
+      }
+    }
+  }
+}

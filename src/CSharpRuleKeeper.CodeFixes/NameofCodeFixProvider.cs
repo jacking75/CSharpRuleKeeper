@@ -54,7 +54,7 @@ public sealed class NameofCodeFixProvider : CodeFixProvider
                     literal,
                     identifier,
                     cancellationToken),
-                equivalenceKey: $"UseNameof:{identifier}"),
+                equivalenceKey: "UseNameof"),
             diagnostic);
     }
 
@@ -64,11 +64,14 @@ public sealed class NameofCodeFixProvider : CodeFixProvider
         string identifier,
         CancellationToken cancellationToken)
     {
+        SyntaxToken identifierToken = SyntaxFacts.GetKeywordKind(identifier) == SyntaxKind.None
+            ? SyntaxFactory.Identifier(identifier)
+            : SyntaxFactory.Identifier("@" + identifier);
         InvocationExpressionSyntax nameofExpression = SyntaxFactory.InvocationExpression(
             SyntaxFactory.IdentifierName("nameof"),
             SyntaxFactory.ArgumentList(
                 SyntaxFactory.SingletonSeparatedList(
-                    SyntaxFactory.Argument(SyntaxFactory.IdentifierName(identifier)))))
+                    SyntaxFactory.Argument(SyntaxFactory.IdentifierName(identifierToken)))))
             .WithTriviaFrom(literal)
             .WithAdditionalAnnotations(Formatter.Annotation);
 

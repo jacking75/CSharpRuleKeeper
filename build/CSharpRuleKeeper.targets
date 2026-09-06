@@ -1,4 +1,11 @@
 <Project>
+  <PropertyGroup>
+    <CSharpRuleKeeperResultFile Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">$(CSharpRuleKeeperResultsRoot)\$(MSBuildProjectName)-$(TargetFramework)-$(Configuration).sarif</CSharpRuleKeeperResultFile>
+    <ErrorLog Condition="'$(CSharpRuleKeeperResultFile)' != ''">$(CSharpRuleKeeperResultFile),version=2.1</ErrorLog>
+    <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
+    <RunAnalyzers>true</RunAnalyzers>
+  </PropertyGroup>
+
   <Target Name="ValidateCSharpRuleKeeperAnalyzerPath"
           BeforeTargets="CoreCompile"
           Condition="'$(CSharpRuleKeeperAnalyzerPath)' == '' Or !Exists('$(CSharpRuleKeeperAnalyzerPath)')">
@@ -9,4 +16,12 @@
     <Analyzer Include="$(CSharpRuleKeeperAnalyzerPath)"
               Condition="Exists('$(CSharpRuleKeeperAnalyzerPath)')" />
   </ItemGroup>
+
+  <Target Name="RecordCSharpRuleKeeperAnalysis"
+          AfterTargets="CoreCompile"
+          Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">
+    <WriteLinesToFile File="$(CSharpRuleKeeperResultsRoot)\$(MSBuildProjectName)-$(TargetFramework)-$(Configuration).completed"
+                      Lines="completed"
+                      Overwrite="true" />
+  </Target>
 </Project>

@@ -381,7 +381,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\bu
 
 ### 8.3 사례 3: 서식을 적용한 뒤 검사
 
-서식 파일 변경에 동의한 경우에만 `-Fix`를 추가한다. `-Fix`는 `dotnet format`만 적용하며, 공개 API·직렬화·제어 흐름에 영향을 줄 수 있는 린트 수정은 자동으로 하지 않는다.
+서식 파일 변경에 동의한 경우에만 `-Fix`를 추가한다. 외부 검사에서 `-Fix`는 `dotnet format whitespace`만 적용하며, 공개 API·직렬화·제어 흐름에 영향을 줄 수 있는 린트 수정과 외부 Analyzer Code Fix는 자동으로 하지 않는다. 저장소 개발 게이트의 전체 `dotnet format --verify-no-changes`와 외부 검사 범위는 구분한다.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -OutputPath .\coding-agent-change-report.md -Fix
@@ -452,7 +452,7 @@ dotnet test $Solution --no-build --configuration Debug
 exit $LASTEXITCODE
 ```
 
-작업 시작 전에는 `-Fix`를 한 번 실행해 안전한 서식을 정리한다. 작업 완료 훅에서는 기본 검증 모드로 실행한다. 이렇게 하면 훅이 사용자의 작업 파일을 예상치 못하게 덮어쓰지 않는다.
+작업 시작 전에는 사용자가 변경을 검토한 경우에만 `-Fix`로 whitespace를 정리한다. 작업 완료 훅에서는 기본 검증 모드로 실행한다. HBCS 0개만으로 성공이라 판단하지 않고 JSON의 `analysisCompleted`와 실행 오류를 함께 확인한다.
 
 대상이 솔루션이 아니라면 `$Solution`에 `.csproj` 경로를 넘겨도 된다. 대형 솔루션은 훅 시간을 줄이기 위해 변경된 프로젝트만 선택하거나, 빠른 단계(format + build)와 느린 단계(test)를 나눌 수 있다.
 
@@ -586,3 +586,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\bu
 Analyzer 어셈블리는 명령줄 컴파일 환경에서 제공되지 않는 `Microsoft.CodeAnalysis.Workspaces`를 참조하지 않는다. Code Fix는 별도 `CSharpRuleKeeper.CodeFixes` 어셈블리로 분리하고, NuGet 패키지의 `analyzers/dotnet/cs` 경로에 Analyzer DLL과 함께 넣는다.
 
 테스트는 규칙별 통과·위반·예외 사례를 포함한다. 메서드 30/31/100/101줄, 타입 300/301/500/501줄, 파일 500/501/1000/1001줄의 물리 줄 수 경계, `.editorconfig` 옵션 변경, 생성 코드 제외, HBCS004 수정 후 재분석 결과를 검증한다.
+
+## 16. 실행·보고서·배포 계약
+
+현행 외부 실행은 먼저 절대 경로를 확정하고 호출 위치를 `finally`에서 복원한다. 도구 소스의 Analyzer는 도구 루트에서 Release로 만들고 대상은 대상 디렉터리에서 자체 SDK 정책으로 빌드한다. 배포 ZIP에서는 포함된 Release DLL을 사용해 반복 소스 빌드를 피한다.
+
+`-Doctor`는 dotnet 위치, 설치 SDK, PowerShell, 도구 버전과 대상에 적용되는 `global.json`을 출력할 뿐 restore·build·파일 수정을 하지 않는다. 외부 기본 서식 단계는 `dotnet format whitespace --verify-no-changes`, 명시적 `-Fix`는 `dotnet format whitespace`다.
+
+컴파일러 SARIF 2.1과 프로젝트별 완료 marker를 이용해 분석 완료를 증명한다. Markdown과 JSON은 실행 ID가 붙은 임시 파일을 만든 뒤 교체하고, `passed/failed/notRun/unknown` 상태와 빌드 종료 코드를 별도로 기록한다. 콘솔 정규식 입력은 과거 로그 호환용이며 그 자체로 분석 완료를 증명하지 않는다. JSON 계약은 `docs/report-schema-v1.json`에 있다.
+
+기준선은 사용자가 `-CreateBaseline`으로 명시적으로 만들고 자동 갱신하지 않는다. 컴파일·restore·분석 미완료는 기준선으로 숨기지 않는다. `config/presets`는 검토용 예제이며 자동 적용 기능이 아니다. 로컬 ZIP, 성능 측정, 기여·지원·사용자 체험 준비는 각각 `docs/RELEASING.md`, `docs/PERFORMANCE.md`, `CONTRIBUTING.md`, `SUPPORT.md`, `docs/USER_STUDY.md`에 기록한다.

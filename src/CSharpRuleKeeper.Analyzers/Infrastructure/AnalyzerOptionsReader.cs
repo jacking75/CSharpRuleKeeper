@@ -33,6 +33,22 @@ static class AnalyzerOptionsReader
             : defaultValue;
     }
 
+    public static (int Warning, int Error) GetLimits(
+        AnalyzerOptions options,
+        SyntaxTree tree,
+        string warningName,
+        string errorName,
+        int defaultWarning,
+        int defaultError)
+    {
+        int warning = GetInt(options, tree, warningName, defaultWarning);
+        int error = GetInt(options, tree, errorName, defaultError);
+
+        return warning > 0 && error > warning
+            ? (warning, error)
+            : (defaultWarning, defaultError);
+    }
+
     public static ImmutableHashSet<string> GetSet(
         AnalyzerOptions options,
         SyntaxTree tree,

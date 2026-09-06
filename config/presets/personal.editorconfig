@@ -1,0 +1,21 @@
+root = true
+
+[*.{cs,csx}]
+dotnet_diagnostic.HBCS001.severity = error
+dotnet_diagnostic.HBCS002.severity = warning
+dotnet_diagnostic.HBCS003.severity = warning
+dotnet_diagnostic.HBCS004.severity = warning
+dotnet_diagnostic.HBCS008.severity = suggestion
+dotnet_diagnostic.HBCS011.severity = warning
+dotnet_diagnostic.HBCS013.severity = warning
+personal_csharp_rules.method_lines_warning = 30
+personal_csharp_rules.method_lines_error = 100
+personal_csharp_rules.type_lines_warning = 300
+personal_csharp_rules.type_lines_error = 500
+personal_csharp_rules.file_lines_warning = 500
+personal_csharp_rules.file_lines_error = 1000
+personal_csharp_rules.max_line_length = 120
+personal_csharp_rules.allow_magic_numbers = -1,0,1,2
+personal_csharp_rules.analyze_test_projects = false
+personal_csharp_rules.public_field_allowed_attributes =
+personal_csharp_rules.type_length_excluded_suffixes =

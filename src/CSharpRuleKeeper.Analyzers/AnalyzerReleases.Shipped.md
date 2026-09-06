@@ -1,5 +1,13 @@
 ; Shipped analyzer releases
 
+## Release 1.1.0
+
+### New Rules
+
+Rule ID | Category | Severity | Notes
+--------|----------|----------|------
+HBCS015 | Maintainability | Warning, Error | Source file length thresholds
+
 ## Release 1.0.0
 
 ### New Rules

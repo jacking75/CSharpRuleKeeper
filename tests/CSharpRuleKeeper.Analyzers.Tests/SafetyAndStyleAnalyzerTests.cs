@@ -91,6 +91,44 @@ public sealed class SafetyAndStyleAnalyzerTests
 
         Assert.Contains("nameof(value)", fixedSource);
         Assert.Empty(diagnostics);
+        await AnalyzerTestHarness.AssertCompilesAsync(fixedSource);
+    }
+
+    [Fact]
+    public async Task Nameof_code_fix_supports_reserved_identifiers_and_multiple_diagnostics()
+    {
+        const string source = """
+            using System;
+
+            sealed class Example
+            {
+                void Read(String first, String second, String @event)
+                {
+                    _ = new ArgumentNullException("first");
+                    _ = new ArgumentNullException("second");
+                    _ = new ArgumentNullException("event");
+                }
+            }
+            """;
+        NameofAnalyzer analyzer = new();
+        NameofCodeFixProvider provider = new();
+        string fixedSource = source;
+        for (int index = 0; index < 3; index++)
+        {
+            fixedSource = await AnalyzerTestHarness.ApplyFirstCodeFixAsync(
+                analyzer,
+                provider,
+                fixedSource);
+        }
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(analyzer, fixedSource);
+
+        Assert.Contains("nameof(first)", fixedSource);
+        Assert.Contains("nameof(second)", fixedSource);
+        Assert.Contains("nameof(@event)", fixedSource);
+        Assert.NotNull(provider.GetFixAllProvider());
+        Assert.Empty(diagnostics);
+        await AnalyzerTestHarness.AssertCompilesAsync(fixedSource);
     }
 
     [Fact]

@@ -1,191 +1,93 @@
 # CSharpRuleKeeper
 
-[English README](README.md)
+[English README](README.md) · [초보자 안내](docs/BEGINNER_GUIDE.html) · [호환성](docs/COMPATIBILITY.md)
 
-[사용 확대를 위한 보강 조사와 구현 계획](docs/ADOPTION_IMPROVEMENT_PLAN.md)
+CSharpRuleKeeper는 대상 프로젝트에 `ProjectReference`나 `PackageReference`를 추가하지 않고 C# 코드를 검사한다. whitespace를 검증하고 현재 빌드에만 Roslyn Analyzer를 주입한 뒤 사람이 읽는 Markdown과 구조화 JSON을 함께 만든다.
 
-AI 코딩 에이전트와 개발자가 작성한 C# 코드를 개인 규칙에 맞게 검사하는 Roslyn Analyzer 패키지다. 서식은 `.editorconfig`와 `dotnet format`으로, 코드 의미를 이해해야 하는 규칙은 HBCS Analyzer로 검사한다.
+## 바로 체험하기
 
-초보자를 위한 화면형 안내서는 [docs/BEGINNER_GUIDE.html](docs/BEGINNER_GUIDE.html)에서 볼 수 있다. 파일 하나만 브라우저로 열면 되며, 설치·규칙 설정·문제 해결 과정을 순서대로 설명한다.
-
-## 빠른 시작
-
-사전 조건은 .NET SDK 10.0.400 이상과 PowerShell이다. 이 저장소를 수정하거나 규칙을 검증할 때는 아래 명령을 실행한다.
+대상 프로젝트 자체의 .NET SDK와 Windows PowerShell 5.1이 필요하다. 이 저장소 개발은 .NET SDK 10.0.400 feature band와 `latestFeature` roll-forward를 사용한다. 먼저 읽기 전용 환경 진단을 실행한다.
 
 ```powershell
-dotnet restore CSharpRuleKeeper.sln
-./build/run-quality-gate.ps1 -Solution ./CSharpRuleKeeper.sln
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1" -Doctor -Solution ".\MySolution.sln"
 ```
 
-품질 게이트는 다음 순서로 실행하며, 기본 모드에서는 파일을 변경하지 않는다.
-
-```text
-dotnet format --verify-no-changes → dotnet build → dotnet test
-```
-
-서식을 실제로 적용해야 할 때만 `-Fix`를 명시한다.
+솔루션 또는 프로젝트를 검사한다.
 
 ```powershell
-./build/run-quality-gate.ps1 -Solution ./CSharpRuleKeeper.sln -Fix
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1" -Solution ".\MySolution.sln" -OutputPath ".\coding-agent-change-report.md" -JsonOutputPath ".\coding-agent-change-report.json"
 ```
 
-## 독립 실행 도구로 사용하기
+종료 코드는 검사 완료·정책 통과 `0`, 완료했지만 정책 위반 `1`, 실행·설정·서식·분석 완료 실패 `2`다. HBCS 진단 0개만으로 분석 완료를 뜻하지 않으므로 JSON의 `analysisCompleted`와 `executionErrors`를 확인한다.
 
-대상 프로젝트의 `.csproj`는 수정하지 않는다. `Invoke-CSharpRuleKeeper.ps1`는 실행 중에만 Analyzer를 대상 빌드에 주입하고, 종료 후에는 대상 프로젝트 파일을 바꾸지 않는다. `C:\tools\CSharpRuleKeeper`는 이 저장소를 내려받은 실제 경로로 바꾼다.
+기본 명령은 `dotnet format whitespace --verify-no-changes`를 실행하며 소스·프로젝트·설정을 바꾸지 않는다. `-Fix`도 `dotnet format whitespace`만 적용한다. 이름 변경, 외부 Analyzer Code Fix, 의미 변경은 실행하지 않는다. 한 줄 조건문의 중괄호처럼 whitespace만으로 해결되지 않는 규칙은 검사 대상일 수 있지만 `-Fix` 지원을 약속하지 않는다.
 
-### `.editorconfig` 옵션 설명 보기
+## 샘플로 안전하게 연습하기
 
-검사할 프로젝트를 지정하지 않고도 지원하는 `personal_csharp_rules.*` 옵션의 값 형식, 기본값, 연결된 HBCS 규칙을 콘솔에서 확인할 수 있다.
+편집 전 저장소나 샘플 복사본을 만든다. 다음 명령은 HBCS001·002를 의도적으로 켜므로 일반적으로 비정상 종료한다.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -ExplainEditorConfig
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\build\Invoke-CSharpRuleKeeper.ps1" -Solution ".\samples\SampleConsumer\SampleConsumer.csproj" -DefineConstants "DEMONSTRATE_RULES" -OutputPath ".\sample-practice-report.md"
 ```
 
-설명 문서를 파일로도 남길 수 있다. 기존 `.editorconfig`에는 자동으로 주석을 추가하지 않으므로, 사용자가 관리하는 설정 파일을 바꾸지 않는다.
+직렬화·API 호환성을 검토한 뒤 `Count`를 캡슐화하고 `Ready`를 `IsReady`로 바꾸며, 테스트 후 재검사한다. HBCS004 IDE Code Fix는 구현돼 있지만 명령줄의 임시 Analyzer 주입만으로 IDE에 설치되지는 않는다.
+
+## 옵션과 점진적 도입
+
+`-ExplainEditorConfig`는 대상을 바꾸지 않고 옵션 카탈로그를 보여 준다. 길이 한계 쌍은 양수이면서 `warning < error`여야 하며 음수·0·overflow·역전이면 두 값을 모두 기본값으로 복원한다. `analyze_test_projects`는 현재 HBCS005에만 적용되고 어셈블리 이름 접미사로 테스트를 판단한다.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -ExplainEditorConfig -OptionsDocumentationPath .\CSharpRuleKeeper-editorconfig-options.md
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\build\Invoke-CSharpRuleKeeper.ps1" -ExplainEditorConfig -OptionsDocumentationPath ".\options.md"
 ```
 
-### 사례 1. 내가 수정한 솔루션을 검사하기
-
-대상 솔루션의 루트에서 다음 명령을 실행한다. HBCS 진단의 위치·메시지·수정 방법을 `coding-agent-change-report.md`에 생성한다.
+[personal/team-starter preset](config/presets), [도입 안내](docs/ADOPTION_GUIDE.md), [기준선 계약](docs/BASELINE.md)을 검토한다. preset은 예제일 뿐 사용자 설정에 자동 복사되지 않는다. 대상에 `TreatWarningsAsErrors`가 있으면 warning도 빌드를 실패시킬 수 있다.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -OutputPath .\coding-agent-change-report.md
+.\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\csharprulekeeper-baseline.json -CreateBaseline
+.\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\csharprulekeeper-baseline.json
 ```
 
-### 사례 2. 코딩 에이전트에게 수정 지침 전달하기
+## 규칙
 
-위 명령으로 만든 `coding-agent-change-report.md`를 에이전트에게 읽게 한다. 에이전트가 수정한 뒤 같은 명령을 다시 실행해 보고서의 HBCS 진단 수가 0인지 확인한다.
-
-### 사례 3. 서식을 적용한 뒤 검사하기
-
-파일 변경에 동의한 경우에만 `-Fix`를 명시한다. `-Fix`는 `dotnet format`으로 서식만 적용하며, API나 동작이 바뀔 수 있는 린트 수정은 하지 않는다.
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -OutputPath .\coding-agent-change-report.md -Fix
-```
-
-### 선택: 대상 규칙 값을 조정하기
-
-대상 솔루션 최상위 폴더에 `.editorconfig`를 두면 길이·예외·검사 범위를 조정할 수 있다. 이 설정 파일도 선택 사항이며 도구를 참조하기 위한 프로젝트 파일 변경은 아니다.
-
-```ini
-root = true
-
-[*.{cs,csx}]
-indent_style = space
-indent_size = 4
-csharp_new_line_before_open_brace = all
-csharp_prefer_braces = true:error
-
-personal_csharp_rules.method_lines_warning = 30
-personal_csharp_rules.method_lines_error = 100
-personal_csharp_rules.type_lines_warning = 300
-personal_csharp_rules.type_lines_error = 500
-personal_csharp_rules.file_lines_warning = 500
-personal_csharp_rules.file_lines_error = 1000
-personal_csharp_rules.max_line_length = 120
-personal_csharp_rules.allow_magic_numbers = -1,0,1,2
-personal_csharp_rules.analyze_test_projects = false
-personal_csharp_rules.public_field_allowed_attributes =
-personal_csharp_rules.type_length_excluded_suffixes =
-```
-
-옵션은 하위 디렉터리의 `.editorconfig`에서 다시 지정할 수 있다. 예를 들어 테스트 프로젝트에서 매직 넘버까지 검사하려면 해당 폴더의 `[*.cs]` 구역에 `personal_csharp_rules.analyze_test_projects = true`를 둔다.
-
-`personal_csharp_rules.*`는 도구가 지원하는 이름만 동작한다. 클래스·구조체·인터페이스·record의 최대 크기는 `type_lines_warning`과 `type_lines_error`로, 메서드 크기는 `method_lines_warning`과 `method_lines_error`로, `.cs` 파일 전체의 최대 크기는 `file_lines_warning`과 `file_lines_error`로 설정한다. 설정표와 예시는 [초보자 안내서](docs/BEGINNER_GUIDE.html)의 “personal_csharp_rules 전체 옵션 참조”에서 확인한다.
-
-## 적용되는 규칙
-
-| ID | 검사 내용 | 기본 심각도 |
+| ID | 검사 | 기본값 |
 | --- | --- | --- |
-| HBCS001 | public 필드 금지 | error |
-| HBCS002 | bool 상태 이름 접두사 | warning |
-| HBCS003 | 컬렉션 이름 복수형 | warning |
-| HBCS004 | 확인 가능한 식별자 문자열에 `nameof` 사용 | warning |
-| HBCS005 | 매직 넘버 추출 | warning |
-| HBCS006 | 메서드 물리 줄 수 | 30줄 warning, 100줄 초과 error |
-| HBCS007 | 타입 물리 줄 수 | 300줄 warning, 500줄 초과 error |
-| HBCS008 | 불필요한 `private` 생략 | info |
-| HBCS009 | 줄 끝 주석 금지 | warning |
-| HBCS010 | 연속 빈 줄 금지 | warning |
-| HBCS011 | `int`·`long` 대신 명시적 비트폭 이름 사용 | warning |
-| HBCS012 | 최대 줄 길이 | warning |
-| HBCS013 | 인터페이스·특성·추상 타입·비동기 메서드 명명 | warning |
-| HBCS014 | private/internal 필드 접두사 | error |
-| HBCS015 | `.cs` 파일 물리 줄 수 | 500줄 warning, 1000줄 초과 error |
+| [HBCS001](docs/rules/HBCS001.md) | public 필드 | error |
+| [HBCS002](docs/rules/HBCS002.md) | boolean 상태 이름 | warning |
+| [HBCS003](docs/rules/HBCS003.md) | 컬렉션 복수형 | warning |
+| [HBCS004](docs/rules/HBCS004.md) | 확인 가능한 문맥의 `nameof` | warning |
+| [HBCS005](docs/rules/HBCS005.md) | 매직 넘버 | warning |
+| [HBCS006](docs/rules/HBCS006.md) | 메서드 물리 줄 | >30 warning, >100 error |
+| [HBCS007](docs/rules/HBCS007.md) | 타입 물리 줄 | >300 warning, >500 error |
+| [HBCS008](docs/rules/HBCS008.md) | 중복 `private` | info |
+| [HBCS009](docs/rules/HBCS009.md) | 줄 끝 주석 | warning |
+| [HBCS010](docs/rules/HBCS010.md) | 연속 빈 줄 | warning |
+| [HBCS011](docs/rules/HBCS011.md) | 명시적 비트폭 정수 이름 | warning |
+| [HBCS012](docs/rules/HBCS012.md) | 줄 길이 | >120 warning |
+| [HBCS013](docs/rules/HBCS013.md) | 필수 명명 패턴 | warning |
+| [HBCS014](docs/rules/HBCS014.md) | 필드 접두사 | error |
+| [HBCS015](docs/rules/HBCS015.md) | 파일 물리 줄 | >500 warning, >1000 error |
 
-생성 코드(`*.g.cs`, `*.Designer.cs`)는 분석하지 않는다. HBCS005는 기본적으로 `-1`, `0`, `1`, `2`, `const`, `enum`, 특성 인수, 비트 플래그와 테스트 프로젝트를 제외한다. HBCS004는 모든 문자열을 검사하지 않으며 `ArgumentException`의 `paramName`, `PropertyChangedEventArgs`, 현재 타입 대상 리플렉션처럼 식별자를 안전하게 확인할 수 있는 경우만 검사한다.
+생성된 `*.g.cs`, `*.Designer.cs`는 분석하지 않는다. 예외·경계·자동 수정·계약 위험은 각 규칙 문서에 있다.
 
-## 규칙을 내 스타일에 맞추는 방법
+## 보고서·배포·저장소 개발
 
-`.editorconfig`의 `personal_csharp_rules.*` 값으로 길이·예외·검사 범위를 조정한다. 값은 쉼표로 구분한다.
+SARIF 2.1 컴파일러 로그가 주 진단 자료원이며 콘솔 정규식은 호환 모드로 남는다. 결과는 안정적으로 정렬하고 `-MaxDiagnostics`는 Markdown 표시만 제한하며 전체 JSON은 [스키마 v1](docs/report-schema-v1.json)을 따른다.
 
-```ini
-[*.cs]
-# 팀의 리팩터링 기준
-personal_csharp_rules.method_lines_warning = 40
-personal_csharp_rules.method_lines_error = 120
-personal_csharp_rules.type_lines_warning = 350
-personal_csharp_rules.type_lines_error = 550
-personal_csharp_rules.file_lines_warning = 600
-personal_csharp_rules.file_lines_error = 1200
-personal_csharp_rules.max_line_length = 140
-
-# 도메인에서 의미가 자명한 숫자와 public 필드 상호 운용 예외
-personal_csharp_rules.allow_magic_numbers = -1,0,1,2,100,404
-personal_csharp_rules.public_field_allowed_attributes = StructLayout,DataMember
-
-# 자동 생성에 가까운 타입의 길이 검사 예외
-personal_csharp_rules.type_length_excluded_suffixes = Dto,Migration
-```
-
-서식·일반 명명은 `.editorconfig`에 두고, 코드 의미를 판단해야 하는 새 규칙은 Analyzer로 구현한다. 공개 API, 직렬화 형식, 제어 흐름을 추측해 바꾸는 자동 수정은 제공하지 않는다. 현재 안전한 Code Fix는 HBCS004의 `nameof` 치환만 제공한다.
-
-## AI 코딩 에이전트와 함께 쓰기
-
-작업 완료 훅에는 아래 한 명령만 연결한다. 대상 프로젝트를 수정하지 않고 검사하며, Markdown 보고서를 남겨 훅 출력이 짧거나 사라지는 환경에서도 에이전트가 수정 지침을 읽을 수 있다. 훅의 이벤트 이름과 설정 파일은 사용하는 도구의 공식 문서에 맞춘다.
+소스 빌드가 필요 없는 로컬 ZIP과 SHA-256을 만든다.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -OutputPath .\coding-agent-change-report.md
+.\build\Publish-CSharpRuleKeeperBundle.ps1 -Version 1.1.0
 ```
 
-훅은 기본적으로 검사만 수행한다. 실패하면 에이전트는 `coding-agent-change-report.md`와 HBCS 진단 위치를 읽고 수정한 뒤 다시 실행한다. 자동 포맷은 사용자가 `-Fix`를 선택한 경우에만 적용한다. 보고서는 HBCS 진단만 정리하며, 컴파일 오류와 서식 오류는 원래 빌드 출력으로 확인한다.
+번들은 Release Analyzer DLL을 재사용하지만 대상 SDK는 계속 필요하다. 공개 게시가 확인되지 않았으므로 존재하지 않는 NuGet/.NET tool 설치 명령은 제공하지 않는다. [배포](docs/RELEASING.md), [성능](docs/PERFORMANCE.md), [지원](SUPPORT.md), [기여](CONTRIBUTING.md)를 참고한다.
 
-## build 스크립트 안내
-
-| 스크립트 | 용도 | 직접 실행 여부 |
-| --- | --- | --- |
-| `Invoke-CSharpRuleKeeper.ps1` | 다른 솔루션 또는 프로젝트를 독립적으로 검사한다. Analyzer를 빌드한 뒤 실행 중에만 적용하고, HBCS 수정 지침 Markdown을 만든다. `-Fix`, `-DefineConstants`, `-ExplainEditorConfig` 옵션도 이 스크립트에서 사용한다. | 일반 사용자가 실행한다. |
-| `Show-CSharpRuleKeeperOptions.ps1` | `personal_csharp_rules.*` 옵션의 값 형식, 기본값, 연결된 진단을 콘솔에 표시하거나 Markdown으로 저장한다. | 보통 `Invoke-CSharpRuleKeeper.ps1 -ExplainEditorConfig`로 실행한다. |
-| `run-quality-gate.ps1` | 이 저장소 자체에 `dotnet format`, 빌드, 테스트를 차례로 실행한다. 필요하면 빌드 결과를 에이전트 수정 지침으로 저장한다. | 이 도구를 개발·수정할 때 실행한다. 다른 프로젝트 검사에는 사용하지 않는다. |
-| `New-CodingAgentChangeReport.ps1` | 빌드 출력에서 HBCS 진단만 골라 위치와 안전한 수정 방향이 담긴 Markdown 보고서를 만든다. | 보통 `Invoke-CSharpRuleKeeper.ps1` 또는 `run-quality-gate.ps1`이 자동으로 호출한다. |
-
-일반적인 사용은 `Invoke-CSharpRuleKeeper.ps1` 하나면 충분하다. `New-CodingAgentChangeReport.ps1`은 이미 만들어진 빌드 출력만 Markdown으로 바꾸는 보조 도구이므로, 외부 프로젝트 검사에는 직접 사용하지 않는다.
-
-## 저장소 구조
-
-```text
-src/CSharpRuleKeeper.Analyzers/         Roslyn Analyzer
-src/CSharpRuleKeeper.CodeFixes/         HBCS004 Code Fix 및 NuGet 패키징
-tests/CSharpRuleKeeper.Analyzers.Tests/ 규칙 테스트
-samples/SampleConsumer/                 규칙 위반 연습용 소비 프로젝트
-build/Invoke-CSharpRuleKeeper.ps1       다른 솔루션을 검사하는 독립 실행 도구
-build/Show-CSharpRuleKeeperOptions.ps1  .editorconfig 옵션 설명 콘솔·Markdown 출력
-build/run-quality-gate.ps1              이 저장소의 format·build·test 품질 게이트
-build/New-CodingAgentChangeReport.ps1   HBCS 진단별 에이전트 수정 지침 Markdown 생성
-build/CSharpRuleKeeper.targets          실행 중 Analyzer를 주입하는 MSBuild 대상 파일
-docs/BEGINNER_GUIDE.html                초보자용 상세 사용 안내
-```
-
-`samples/SampleConsumer`에는 실제 사용 연습을 위한 의도적 위반 코드가 있다. 평소에는 제외되어 기본 빌드에 영향을 주지 않으며, 아래 명령에서만 `DEMONSTRATE_RULES`를 켜 HBCS001(public 필드)과 HBCS002(bool 이름)를 재현한다.
+저장소 개발 검증은 외부 검사보다 넓다.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\samples\SampleConsumer\SampleConsumer.csproj -DefineConstants DEMONSTRATE_RULES -OutputPath .\sample-practice-report.md
+dotnet format --verify-no-changes
+dotnet build
+dotnet test
+.\build\run-quality-gate.ps1
 ```
 
-이 명령은 의도적으로 실패하며 `sample-practice-report.md`에 두 HBCS 진단과 수정 방향을 기록한다. `RuleViolations.cs`의 `Count`를 속성으로 바꾸고 `Ready`를 `IsReady`로 이름 변경한 뒤 같은 명령을 다시 실행하면 HBCS 보고서가 비워진다. 연습을 다시 하려면 코드를 되돌릴 필요 없이 다음 실행에서 `DEMONSTRATE_RULES`를 다시 지정하면 된다.
-
-더 자세한 설계와 구현 근거는 [구현 가이드](csharp-agent-hook-lint-implementation-guide.md)를 참고한다.
+품질 게이트는 격리된 외부 프로젝트 통합 테스트도 수행하며 CI 설정은 만들지 않는다. 설계 근거는 [구현 가이드](csharp-agent-hook-lint-implementation-guide.md)에 있다.

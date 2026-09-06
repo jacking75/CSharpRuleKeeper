@@ -280,6 +280,78 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
+    public async Task Naming_analyzers_preserve_implicit_interface_contracts()
+    {
+        const string source = """
+            using System;
+            using System.Collections;
+            using System.Collections.Generic;
+            using System.Threading.Tasks;
+
+            interface Contract
+            {
+                Boolean Ready { get; }
+                IEnumerable<Int32> Buffer { get; }
+                Boolean Move();
+                Task Load();
+            }
+
+            sealed class Implementation : Contract
+            {
+                public Boolean Ready => true;
+                public IEnumerable<Int32> Buffer => Array.Empty<Int32>();
+                public Boolean Move() => true;
+                public Task Load() => Task.CompletedTask;
+            }
+
+            sealed class Enumerator : IEnumerator
+            {
+                public Object Current => new();
+                public Boolean MoveNext() => false;
+                public void Reset() { }
+            }
+            """;
+
+        var booleanDiagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new BooleanNameAnalyzer(),
+            source);
+        var collectionDiagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new CollectionNameAnalyzer(),
+            source);
+        var requiredDiagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new RequiredNamingAnalyzer(),
+            source);
+
+        Assert.Equal(2, booleanDiagnostics.Length);
+        Assert.Single(collectionDiagnostics);
+        Assert.Equal(2, requiredDiagnostics.Length);
+        Assert.DoesNotContain(booleanDiagnostics, diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
+        Assert.DoesNotContain(collectionDiagnostics, diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
+        Assert.DoesNotContain(requiredDiagnostics, diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
+    }
+
+    [Fact]
+    public async Task CollectionName_recognizes_IEnumerable_and_documents_suffix_limit()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+
+            sealed class Example
+            {
+                void Read(IEnumerable<Int32> buffer, IEnumerable<Int32> status, IEnumerable<Int32> values) { }
+            }
+            """;
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new CollectionNameAnalyzer(),
+            source);
+
+        Assert.Single(diagnostics);
+        Assert.Contains("buffer", diagnostics[0].GetMessage());
+    }
+
+    [Fact]
     public async Task Generated_code_is_ignored_by_naming_analyzers()
     {
         const string source = """

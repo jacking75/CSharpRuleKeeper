@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible analyzer or execution problem
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Tool version
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, SDK, PowerShell and exact command
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Do not include secrets or a complete private codebase
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected diagnostics
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual diagnostics and execution state
+    validations:
+      required: true

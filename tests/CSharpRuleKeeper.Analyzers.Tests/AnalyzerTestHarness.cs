@@ -38,7 +38,7 @@ static class AnalyzerTestHarness
                 nullableContextOptions: NullableContextOptions.Enable));
         AnalyzerOptions analyzerOptions = new(
             ImmutableArray<AdditionalText>.Empty,
-            new TestAnalyzerConfigOptionsProvider(options));
+            new TestAnalyzerConfigOptionsProvider(options, null));
         CompilationWithAnalyzersOptions compilationOptions = new(
             analyzerOptions,
             onAnalyzerException: null,
@@ -53,6 +53,62 @@ static class AnalyzerTestHarness
             .OrderBy(diagnostic => diagnostic.Location.SourceSpan.Start)
             .ThenBy(diagnostic => diagnostic.Id, StringComparer.Ordinal)
             .ToImmutableArray();
+    }
+
+    public static async Task<ImmutableArray<Diagnostic>> GetDiagnosticsAsync(
+        DiagnosticAnalyzer analyzer,
+        IReadOnlyDictionary<string, string> sources,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? fileOptions = null,
+        LanguageVersion languageVersion = LanguageVersion.Preview,
+        bool allowCompilerErrors = false,
+        string assemblyName = "Production")
+    {
+        SyntaxTree[] trees = sources.Select(pair => CSharpSyntaxTree.ParseText(
+            SourceText.From(pair.Value),
+            new CSharpParseOptions(languageVersion),
+            pair.Key)).ToArray<SyntaxTree>();
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            assemblyName,
+            trees,
+            s_references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions: NullableContextOptions.Enable));
+        if (!allowCompilerErrors)
+        {
+            AssertNoCompilerErrors(compilation);
+        }
+
+        AnalyzerOptions analyzerOptions = new(
+            ImmutableArray<AdditionalText>.Empty,
+            new TestAnalyzerConfigOptionsProvider(null, fileOptions));
+        CompilationWithAnalyzersOptions compilationOptions = new(
+            analyzerOptions,
+            onAnalyzerException: null,
+            concurrentAnalysis: true,
+            logAnalyzerExecutionTime: false,
+            reportSuppressedDiagnostics: false);
+        return (await compilation.WithAnalyzers(
+                ImmutableArray.Create(analyzer),
+                compilationOptions)
+            .GetAnalyzerDiagnosticsAsync())
+            .OrderBy(diagnostic => diagnostic.Location.SourceTree?.FilePath, StringComparer.Ordinal)
+            .ThenBy(diagnostic => diagnostic.Location.SourceSpan.Start)
+            .ToImmutableArray();
+    }
+
+    public static Task AssertCompilesAsync(string source)
+    {
+        SyntaxTree tree = CSharpSyntaxTree.ParseText(
+            SourceText.From(source),
+            new CSharpParseOptions(LanguageVersion.Preview));
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "CompilationCheck",
+            new[] { tree },
+            s_references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        AssertNoCompilerErrors(compilation);
+        return Task.CompletedTask;
     }
 
     public static async Task<string> ApplyFirstCodeFixAsync(
@@ -70,7 +126,10 @@ static class AnalyzerTestHarness
         ImmutableArray<Diagnostic> diagnostics = await compilation
             .WithAnalyzers(ImmutableArray.Create(analyzer))
             .GetAnalyzerDiagnosticsAsync();
-        Diagnostic diagnostic = diagnostics.Single(item => provider.FixableDiagnosticIds.Contains(item.Id));
+        Diagnostic diagnostic = diagnostics
+            .Where(item => provider.FixableDiagnosticIds.Contains(item.Id))
+            .OrderBy(item => item.Location.SourceSpan.Start)
+            .First();
         List<CodeAction> actions = new();
         CodeFixContext context = new(
             document,
@@ -104,19 +163,40 @@ static class AnalyzerTestHarness
             .ToImmutableArray<MetadataReference>();
     }
 
+    static void AssertNoCompilerErrors(Compilation compilation)
+    {
+        ImmutableArray<Diagnostic> errors = compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .ToImmutableArray();
+        if (errors.Length > 0)
+        {
+            throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
+        }
+    }
+
     sealed class TestAnalyzerConfigOptionsProvider : AnalyzerConfigOptionsProvider
     {
         readonly AnalyzerConfigOptions _options;
+        readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? _fileOptions;
 
-        public TestAnalyzerConfigOptionsProvider(IReadOnlyDictionary<string, string>? options)
+        public TestAnalyzerConfigOptionsProvider(
+            IReadOnlyDictionary<string, string>? options,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? fileOptions)
         {
             _options = new TestAnalyzerConfigOptions(options);
+            _fileOptions = fileOptions;
         }
 
         public override AnalyzerConfigOptions GlobalOptions => _options;
 
         public override AnalyzerConfigOptions GetOptions(SyntaxTree tree)
         {
+            if (_fileOptions is not null &&
+                _fileOptions.TryGetValue(tree.FilePath, out IReadOnlyDictionary<string, string>? options))
+            {
+                return new TestAnalyzerConfigOptions(options);
+            }
+
             return _options;
         }
 

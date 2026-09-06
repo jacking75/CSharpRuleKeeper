@@ -44,19 +44,13 @@ public sealed class TypeLengthAnalyzer : DiagnosticAnalyzer
         }
 
         int lineCount = AnalysisUtilities.CountPhysicalLines(declaration);
-        int warningLimit = AnalyzerOptionsReader.GetInt(
+        (int warningLimit, int errorLimit) = AnalyzerOptionsReader.GetLimits(
             context.Options,
             declaration.SyntaxTree,
             "type_lines_warning",
-            DefaultWarningLimit);
-        int errorLimit = AnalyzerOptionsReader.GetInt(
-            context.Options,
-            declaration.SyntaxTree,
             "type_lines_error",
+            DefaultWarningLimit,
             DefaultErrorLimit);
-
-        warningLimit = warningLimit < 1 ? DefaultWarningLimit : warningLimit;
-        errorLimit = errorLimit <= warningLimit ? DefaultErrorLimit : errorLimit;
 
         DiagnosticDescriptor? descriptor = lineCount > errorLimit
             ? RuleDefinitions.TypeLengthError

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using CSharpRuleKeeper.Analyzers.Infrastructure;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
@@ -56,8 +57,7 @@ public sealed class RequiredNamingAnalyzer : DiagnosticAnalyzer
             method.IsImplicitlyDeclared ||
             method.Name == "Main" ||
             method.Name.EndsWith("Async", StringComparison.Ordinal) ||
-            method.IsOverride ||
-            method.ExplicitInterfaceImplementations.Length > 0 ||
+            AnalysisUtilities.IsExternalContract(method) ||
             !ReturnsTask(method.ReturnType))
         {
             return;

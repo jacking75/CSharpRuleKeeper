@@ -41,19 +41,13 @@ public sealed class MethodLengthAnalyzer : DiagnosticAnalyzer
     {
         SyntaxNode declaration = context.Node;
         int lineCount = AnalysisUtilities.CountPhysicalLines(declaration);
-        int warningLimit = AnalyzerOptionsReader.GetInt(
+        (int warningLimit, int errorLimit) = AnalyzerOptionsReader.GetLimits(
             context.Options,
             declaration.SyntaxTree,
             "method_lines_warning",
-            DefaultWarningLimit);
-        int errorLimit = AnalyzerOptionsReader.GetInt(
-            context.Options,
-            declaration.SyntaxTree,
             "method_lines_error",
+            DefaultWarningLimit,
             DefaultErrorLimit);
-
-        warningLimit = warningLimit < 1 ? DefaultWarningLimit : warningLimit;
-        errorLimit = errorLimit <= warningLimit ? DefaultErrorLimit : errorLimit;
 
         DiagnosticDescriptor? descriptor = lineCount > errorLimit
             ? RuleDefinitions.MethodLengthError

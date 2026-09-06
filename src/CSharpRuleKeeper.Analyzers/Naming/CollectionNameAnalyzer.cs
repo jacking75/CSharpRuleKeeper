@@ -68,7 +68,9 @@ public sealed class CollectionNameAnalyzer : DiagnosticAnalyzer
         IParameterSymbol? parameter = context.SemanticModel.GetDeclaredSymbol(
             declaration,
             context.CancellationToken);
-        if (parameter is null || !AnalysisUtilities.IsCollection(parameter.Type))
+        if (parameter is null ||
+            !AnalysisUtilities.IsCollection(parameter.Type) ||
+            AnalysisUtilities.IsExternalContract(parameter.ContainingSymbol))
         {
             return;
         }
@@ -87,7 +89,9 @@ public sealed class CollectionNameAnalyzer : DiagnosticAnalyzer
         IPropertySymbol? property = context.SemanticModel.GetDeclaredSymbol(
             declaration,
             context.CancellationToken);
-        if (property is null || !AnalysisUtilities.IsCollection(property.Type))
+        if (property is null ||
+            !AnalysisUtilities.IsCollection(property.Type) ||
+            AnalysisUtilities.IsExternalContract(property))
         {
             return;
         }

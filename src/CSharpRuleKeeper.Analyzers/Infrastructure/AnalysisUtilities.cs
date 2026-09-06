@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -35,9 +36,57 @@ static class AnalysisUtilities
             return true;
         }
 
+        if (type.OriginalDefinition.SpecialType == SpecialType.System_Collections_IEnumerable ||
+            type.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>")
+        {
+            return true;
+        }
+
         return type.AllInterfaces.Any(interfaceType =>
             interfaceType.SpecialType == SpecialType.System_Collections_IEnumerable ||
             interfaceType.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>");
+    }
+
+    public static bool ImplementsInterfaceMember(ISymbol symbol)
+    {
+        INamedTypeSymbol? containingType = symbol.ContainingType;
+        if (containingType is null)
+        {
+            return false;
+        }
+
+        foreach (INamedTypeSymbol interfaceType in containingType.AllInterfaces)
+        {
+            foreach (ISymbol member in interfaceType.GetMembers())
+            {
+                if (SymbolEqualityComparer.Default.Equals(
+                    containingType.FindImplementationForInterfaceMember(member),
+                    symbol))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static bool IsExternalContract(ISymbol symbol)
+    {
+        return symbol.IsOverride ||
+            GetExplicitInterfaceImplementations(symbol).Length > 0 ||
+            ImplementsInterfaceMember(symbol);
+    }
+
+    static ImmutableArray<ISymbol> GetExplicitInterfaceImplementations(ISymbol symbol)
+    {
+        return symbol switch
+        {
+            IMethodSymbol method => method.ExplicitInterfaceImplementations.Cast<ISymbol>().ToImmutableArray(),
+            IPropertySymbol property => property.ExplicitInterfaceImplementations.Cast<ISymbol>().ToImmutableArray(),
+            IEventSymbol declaredEvent => declaredEvent.ExplicitInterfaceImplementations.Cast<ISymbol>().ToImmutableArray(),
+            _ => ImmutableArray<ISymbol>.Empty,
+        };
     }
 
     public static bool IsTestAssembly(string? assemblyName)

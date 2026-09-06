@@ -28,19 +28,13 @@ public sealed class FileLengthAnalyzer : DiagnosticAnalyzer
     {
         SourceText text = context.Tree.GetText(context.CancellationToken);
         int lineCount = text.Lines.Count;
-        int warningLimit = AnalyzerOptionsReader.GetInt(
+        (int warningLimit, int errorLimit) = AnalyzerOptionsReader.GetLimits(
             context.Options,
             context.Tree,
             "file_lines_warning",
-            DefaultWarningLimit);
-        int errorLimit = AnalyzerOptionsReader.GetInt(
-            context.Options,
-            context.Tree,
             "file_lines_error",
+            DefaultWarningLimit,
             DefaultErrorLimit);
-
-        warningLimit = warningLimit < 1 ? DefaultWarningLimit : warningLimit;
-        errorLimit = errorLimit <= warningLimit ? DefaultErrorLimit : errorLimit;
 
         DiagnosticDescriptor? descriptor = lineCount > errorLimit
             ? RuleDefinitions.FileLengthError

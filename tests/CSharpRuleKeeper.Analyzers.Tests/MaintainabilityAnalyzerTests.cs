@@ -178,6 +178,31 @@ public sealed class MaintainabilityAnalyzerTests
         Assert.All(diagnostics, diagnostic => Assert.Equal(RuleIds.MethodLength, diagnostic.Id));
     }
 
+    [Theory]
+    [InlineData("0", "100")]
+    [InlineData("200", "100")]
+    [InlineData("2147483648", "300")]
+    [InlineData("invalid", "300")]
+    public async Task MethodLength_restores_both_defaults_for_invalid_limit_pairs(
+        string warning,
+        string error)
+    {
+        Dictionary<string, string> options = new()
+        {
+            ["personal_csharp_rules.method_lines_warning"] = warning,
+            ["personal_csharp_rules.method_lines_error"] = error,
+        };
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new MethodLengthAnalyzer(),
+            BuildMethod(31),
+            options);
+
+        Diagnostic diagnostic = Assert.Single(diagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Contains("limit of 30", diagnostic.GetMessage());
+    }
+
     [Fact]
     public async Task TypeLength_enforces_all_default_boundaries()
     {
@@ -207,6 +232,30 @@ public sealed class MaintainabilityAnalyzerTests
             options);
 
         Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public async Task Type_and_file_lengths_restore_both_defaults_for_reversed_pairs()
+    {
+        Dictionary<string, string> options = new()
+        {
+            ["personal_csharp_rules.type_lines_warning"] = "600",
+            ["personal_csharp_rules.type_lines_error"] = "500",
+            ["personal_csharp_rules.file_lines_warning"] = "1200",
+            ["personal_csharp_rules.file_lines_error"] = "1000",
+        };
+
+        var typeDiagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new TypeLengthAnalyzer(),
+            BuildType(301, "Example"),
+            options);
+        var fileDiagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new FileLengthAnalyzer(),
+            BuildFile(501),
+            options);
+
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(typeDiagnostics).Severity);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(fileDiagnostics).Severity);
     }
 
     [Fact]

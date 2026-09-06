@@ -50,7 +50,8 @@ public sealed class NameofAnalyzer : DiagnosticAnalyzer
         }
 
         string identifier = literal.Token.ValueText;
-        if (!SyntaxFacts.IsValidIdentifier(identifier))
+        if (!SyntaxFacts.IsValidIdentifier(identifier) &&
+            SyntaxFacts.GetKeywordKind(identifier) == SyntaxKind.None)
         {
             return;
         }

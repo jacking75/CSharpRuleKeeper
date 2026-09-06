@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Solution = "CSharpRuleKeeper.sln",
     [switch]$Fix,
     [string]$AgentReportPath
@@ -31,7 +31,8 @@ $buildOutput | ForEach-Object {
 
 if ($AgentReportPath)
 {
-    $buildOutput | & "$PSScriptRoot\New-CodingAgentChangeReport.ps1" -OutputPath $AgentReportPath -Target $Solution
+    $analysisStatus = if ($buildExitCode -eq 0) { "passed" } else { "failed" }
+    $buildOutput | & "$PSScriptRoot\New-CodingAgentChangeReport.ps1" -OutputPath $AgentReportPath -Target $Solution -BuildExitCode $buildExitCode -FormatStatus passed -AnalysisStatus $analysisStatus
 }
 
 if ($buildExitCode -ne 0)
@@ -40,4 +41,25 @@ if ($buildExitCode -ne 0)
 }
 
 dotnet test $Solution --no-build --configuration Debug
+$testExitCode = $LASTEXITCODE
+if ($testExitCode -ne 0)
+{
+    exit $testExitCode
+}
+
+& "$PSScriptRoot\Test-CSharpRuleKeeperIntegration.ps1"
+$integrationExitCode = $LASTEXITCODE
+if ($integrationExitCode -ne 0)
+{
+    exit $integrationExitCode
+}
+
+& "$PSScriptRoot\Test-CSharpRuleKeeperFailureAndFormat.ps1"
+$failureAndFormatExitCode = $LASTEXITCODE
+if ($failureAndFormatExitCode -ne 0)
+{
+    exit $failureAndFormatExitCode
+}
+
+& "$PSScriptRoot\Test-CSharpRuleKeeperReport.ps1"
 exit $LASTEXITCODE
