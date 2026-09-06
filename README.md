@@ -6,6 +6,7 @@ CSharpRuleKeeper checks C# code against personal coding rules and turns HBCS dia
 
 - [Korean beginner guide](docs/BEGINNER_GUIDE.html)
 - [English beginner guide](docs/BEGINNER_GUIDE_en.html)
+- [Adoption improvement research and implementation plan (Korean)](docs/ADOPTION_IMPROVEMENT_PLAN.md)
 
 ## Quick start for this repository
 

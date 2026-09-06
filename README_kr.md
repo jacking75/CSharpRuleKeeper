@@ -2,6 +2,8 @@
 
 [English README](README.md)
 
+[사용 확대를 위한 보강 조사와 구현 계획](docs/ADOPTION_IMPROVEMENT_PLAN.md)
+
 AI 코딩 에이전트와 개발자가 작성한 C# 코드를 개인 규칙에 맞게 검사하는 Roslyn Analyzer 패키지다. 서식은 `.editorconfig`와 `dotnet format`으로, 코드 의미를 이해해야 하는 규칙은 HBCS Analyzer로 검사한다.
 
 초보자를 위한 화면형 안내서는 [docs/BEGINNER_GUIDE.html](docs/BEGINNER_GUIDE.html)에서 볼 수 있다. 파일 하나만 브라우저로 열면 되며, 설치·규칙 설정·문제 해결 과정을 순서대로 설명한다.
