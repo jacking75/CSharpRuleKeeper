@@ -16,16 +16,14 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot -Recurse -Force }
 New-Item -ItemType Directory -Path (Join-Path $stagingRoot "build") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stagingRoot "analyzers") -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $stagingRoot "docs\rules") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $stagingRoot "docs") -Force | Out-Null
 
 Copy-Item -LiteralPath (Join-Path $toolRoot "src\CSharpRuleKeeper.Analyzers\bin\Release\netstandard2.0\CSharpRuleKeeper.Analyzers.dll") -Destination (Join-Path $stagingRoot "analyzers")
 Copy-Item -LiteralPath (Join-Path $toolRoot "build\Invoke-CSharpRuleKeeper.ps1") -Destination (Join-Path $stagingRoot "build")
 Copy-Item -LiteralPath (Join-Path $toolRoot "build\New-CodingAgentChangeReport.ps1") -Destination (Join-Path $stagingRoot "build")
 Copy-Item -LiteralPath (Join-Path $toolRoot "build\Show-CSharpRuleKeeperOptions.ps1") -Destination (Join-Path $stagingRoot "build")
 Copy-Item -LiteralPath (Join-Path $toolRoot "build\CSharpRuleKeeper.targets") -Destination (Join-Path $stagingRoot "build")
-Copy-Item -LiteralPath (Join-Path $toolRoot "docs\options.json") -Destination (Join-Path $stagingRoot "docs")
-Copy-Item -LiteralPath (Join-Path $toolRoot "docs\report-schema-v1.json") -Destination (Join-Path $stagingRoot "docs")
-Copy-Item -Path (Join-Path $toolRoot "docs\rules\*.md") -Destination (Join-Path $stagingRoot "docs\rules")
+Copy-Item -Path (Join-Path $toolRoot "docs\*.html") -Destination (Join-Path $stagingRoot "docs")
 Copy-Item -LiteralPath (Join-Path $toolRoot "README.md") -Destination $stagingRoot
 Copy-Item -LiteralPath (Join-Path $toolRoot "README_kr.md") -Destination $stagingRoot
 Copy-Item -LiteralPath (Join-Path $toolRoot "LICENSE") -Destination $stagingRoot

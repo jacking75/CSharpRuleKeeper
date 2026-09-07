@@ -1,6 +1,6 @@
 # CSharpRuleKeeper
 
-[English README](README.md) · [초보자 안내](docs/BEGINNER_GUIDE.html) · [호환성](docs/COMPATIBILITY.md)
+[English README](README.md) · [초보자 안내](docs/BEGINNER_GUIDE.html) · [참조 안내](docs/REFERENCE_GUIDE.html)
 
 CSharpRuleKeeper는 대상 프로젝트에 `ProjectReference`나 `PackageReference`를 추가하지 않고 C# 코드를 검사한다. whitespace를 검증하고 현재 빌드에만 Roslyn Analyzer를 주입한 뒤 사람이 읽는 Markdown과 구조화 JSON을 함께 만든다.
 
@@ -40,7 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\build\Invoke-CSharpRuleKe
 powershell -NoProfile -ExecutionPolicy Bypass -File ".\build\Invoke-CSharpRuleKeeper.ps1" -ExplainEditorConfig -OptionsDocumentationPath ".\options.md"
 ```
 
-[personal/team-starter preset](config/presets), [도입 안내](docs/ADOPTION_GUIDE.md), [기준선 계약](docs/BASELINE.md)을 검토한다. preset은 예제일 뿐 사용자 설정에 자동 복사되지 않는다. 대상에 `TreatWarningsAsErrors`가 있으면 warning도 빌드를 실패시킬 수 있다.
+[personal/team-starter preset](config/presets)과 [참조 안내](docs/REFERENCE_GUIDE.html#adoption)를 검토한다. preset은 예제일 뿐 사용자 설정에 자동 복사되지 않는다. 대상에 `TreatWarningsAsErrors`가 있으면 warning도 빌드를 실패시킬 수 있다.
 
 ```powershell
 .\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\csharprulekeeper-baseline.json -CreateBaseline
@@ -51,27 +51,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\build\Invoke-CSharpRuleKe
 
 | ID | 검사 | 기본값 |
 | --- | --- | --- |
-| [HBCS001](docs/rules/HBCS001.md) | public 필드 | error |
-| [HBCS002](docs/rules/HBCS002.md) | boolean 상태 이름 | warning |
-| [HBCS003](docs/rules/HBCS003.md) | 컬렉션 복수형 | warning |
-| [HBCS004](docs/rules/HBCS004.md) | 확인 가능한 문맥의 `nameof` | warning |
-| [HBCS005](docs/rules/HBCS005.md) | 매직 넘버 | warning |
-| [HBCS006](docs/rules/HBCS006.md) | 메서드 물리 줄 | >30 warning, >100 error |
-| [HBCS007](docs/rules/HBCS007.md) | 타입 물리 줄 | >300 warning, >500 error |
-| [HBCS008](docs/rules/HBCS008.md) | 중복 `private` | info |
-| [HBCS009](docs/rules/HBCS009.md) | 줄 끝 주석 | warning |
-| [HBCS010](docs/rules/HBCS010.md) | 연속 빈 줄 | warning |
-| [HBCS011](docs/rules/HBCS011.md) | 명시적 비트폭 정수 이름 | warning |
-| [HBCS012](docs/rules/HBCS012.md) | 줄 길이 | >120 warning |
-| [HBCS013](docs/rules/HBCS013.md) | 필수 명명 패턴 | warning |
-| [HBCS014](docs/rules/HBCS014.md) | 필드 접두사 | error |
-| [HBCS015](docs/rules/HBCS015.md) | 파일 물리 줄 | >500 warning, >1000 error |
+| [HBCS001](docs/REFERENCE_GUIDE.html#HBCS001) | public 필드 | error |
+| [HBCS002](docs/REFERENCE_GUIDE.html#HBCS002) | boolean 상태 이름 | warning |
+| [HBCS003](docs/REFERENCE_GUIDE.html#HBCS003) | 컬렉션 복수형 | warning |
+| [HBCS004](docs/REFERENCE_GUIDE.html#HBCS004) | 확인 가능한 문맥의 `nameof` | warning |
+| [HBCS005](docs/REFERENCE_GUIDE.html#HBCS005) | 매직 넘버 | warning |
+| [HBCS006](docs/REFERENCE_GUIDE.html#HBCS006) | 메서드 물리 줄 | >30 warning, >100 error |
+| [HBCS007](docs/REFERENCE_GUIDE.html#HBCS007) | 타입 물리 줄 | >300 warning, >500 error |
+| [HBCS008](docs/REFERENCE_GUIDE.html#HBCS008) | 중복 `private` | info |
+| [HBCS009](docs/REFERENCE_GUIDE.html#HBCS009) | 줄 끝 주석 | warning |
+| [HBCS010](docs/REFERENCE_GUIDE.html#HBCS010) | 연속 빈 줄 | warning |
+| [HBCS011](docs/REFERENCE_GUIDE.html#HBCS011) | 명시적 비트폭 정수 이름 | warning |
+| [HBCS012](docs/REFERENCE_GUIDE.html#HBCS012) | 줄 길이 | >120 warning |
+| [HBCS013](docs/REFERENCE_GUIDE.html#HBCS013) | 필수 명명 패턴 | warning |
+| [HBCS014](docs/REFERENCE_GUIDE.html#HBCS014) | 필드 접두사 | error |
+| [HBCS015](docs/REFERENCE_GUIDE.html#HBCS015) | 파일 물리 줄 | >500 warning, >1000 error |
 
 생성된 `*.g.cs`, `*.Designer.cs`는 분석하지 않는다. 예외·경계·자동 수정·계약 위험은 각 규칙 문서에 있다.
 
 ## 보고서·배포·저장소 개발
 
-SARIF 2.1 컴파일러 로그가 주 진단 자료원이며 콘솔 정규식은 호환 모드로 남는다. 결과는 안정적으로 정렬하고 `-MaxDiagnostics`는 Markdown 표시만 제한하며 전체 JSON은 [스키마 v1](docs/report-schema-v1.json)을 따른다.
+SARIF 2.1 컴파일러 로그가 주 진단 자료원이며 콘솔 정규식은 호환 모드로 남는다. 결과는 안정적으로 정렬하고 `-MaxDiagnostics`는 Markdown 표시만 제한하며 전체 JSON의 필수 필드는 [참조 안내](docs/REFERENCE_GUIDE.html#reports)에 정리했다.
 
 소스 빌드가 필요 없는 로컬 ZIP과 SHA-256을 만든다.
 
@@ -79,7 +79,7 @@ SARIF 2.1 컴파일러 로그가 주 진단 자료원이며 콘솔 정규식은 
 .\build\Publish-CSharpRuleKeeperBundle.ps1 -Version 1.1.0
 ```
 
-번들은 Release Analyzer DLL을 재사용하지만 대상 SDK는 계속 필요하다. 공개 게시가 확인되지 않았으므로 존재하지 않는 NuGet/.NET tool 설치 명령은 제공하지 않는다. [배포](docs/RELEASING.md), [성능](docs/PERFORMANCE.md), [지원](SUPPORT.md), [기여](CONTRIBUTING.md)를 참고한다.
+번들은 Release Analyzer DLL을 재사용하지만 대상 SDK는 계속 필요하다. 공개 게시가 확인되지 않았으므로 존재하지 않는 NuGet/.NET tool 설치 명령은 제공하지 않는다. [참조 안내](docs/REFERENCE_GUIDE.html#distribution), [문제 해결](docs/REFERENCE_GUIDE.html#support), [기여](CONTRIBUTING.md)를 참고한다.
 
 저장소 개발 검증은 외부 검사보다 넓다.
 
@@ -90,4 +90,4 @@ dotnet test
 .\build\run-quality-gate.ps1
 ```
 
-품질 게이트는 격리된 외부 프로젝트 통합 테스트도 수행하며 CI 설정은 만들지 않는다. 설계 근거는 [구현 가이드](csharp-agent-hook-lint-implementation-guide.md)에 있다.
+품질 게이트는 격리된 외부 프로젝트 통합 테스트도 수행하며 CI 설정은 만들지 않는다. 설계 근거는 [구현 안내](docs/IMPLEMENTATION_GUIDE.html)에 있다.

@@ -80,7 +80,7 @@ end
             line = $Line
             column = $Column
             message = $Message
-            helpUri = "https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/rules/$RuleId.md"
+            helpUri = "https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/REFERENCE_GUIDE.html#$RuleId"
             requiresContractReview = $RuleId -in @("HBCS001", "HBCS002", "HBCS003", "HBCS004", "HBCS013", "HBCS014")
         })
     }
