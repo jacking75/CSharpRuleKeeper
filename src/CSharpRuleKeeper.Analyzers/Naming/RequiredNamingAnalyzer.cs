@@ -10,7 +10,7 @@ namespace CSharpRuleKeeper.Analyzers.Naming;
 public sealed class RequiredNamingAnalyzer : DiagnosticAnalyzer
 {
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.TypeNaming);
+        ImmutableArray.Create(RuleDefinitions.s_typeNaming);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -34,7 +34,7 @@ public sealed class RequiredNamingAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        if (InheritsFrom(type, "System.Attribute") &&
+        if (IsDerivedFrom(type, "System.Attribute") &&
             !type.Name.EndsWith("Attribute", StringComparison.Ordinal))
         {
             Report(context, type, "Attribute type", "end with 'Attribute'");
@@ -43,7 +43,7 @@ public sealed class RequiredNamingAnalyzer : DiagnosticAnalyzer
 
         if (type.TypeKind == TypeKind.Class &&
             type.IsAbstract &&
-            !InheritsFrom(type, "System.Attribute") &&
+            !IsDerivedFrom(type, "System.Attribute") &&
             !type.Name.EndsWith("Base", StringComparison.Ordinal))
         {
             Report(context, type, "Abstract base type", "end with 'Base'");
@@ -58,7 +58,7 @@ public sealed class RequiredNamingAnalyzer : DiagnosticAnalyzer
             method.Name == "Main" ||
             method.Name.EndsWith("Async", StringComparison.Ordinal) ||
             AnalysisUtilities.IsExternalContract(method) ||
-            !ReturnsTask(method.ReturnType))
+            !HasTaskReturnType(method.ReturnType))
         {
             return;
         }
@@ -71,7 +71,7 @@ public sealed class RequiredNamingAnalyzer : DiagnosticAnalyzer
         return name.Length > 1 && name[0] == 'I' && char.IsUpper(name[1]);
     }
 
-    static bool InheritsFrom(INamedTypeSymbol type, string fullName)
+    static bool IsDerivedFrom(INamedTypeSymbol type, string fullName)
     {
         for (INamedTypeSymbol? current = type; current is not null; current = current.BaseType)
         {
@@ -84,7 +84,7 @@ public sealed class RequiredNamingAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    static bool ReturnsTask(ITypeSymbol returnType)
+    static bool HasTaskReturnType(ITypeSymbol returnType)
     {
         INamedTypeSymbol? namedType = returnType as INamedTypeSymbol;
         if (namedType is null || namedType.ContainingNamespace.ToDisplayString() != "System.Threading.Tasks")
@@ -98,7 +98,7 @@ public sealed class RequiredNamingAnalyzer : DiagnosticAnalyzer
     static void Report(SymbolAnalysisContext context, ISymbol symbol, string kind, string requirement)
     {
         context.ReportDiagnostic(Diagnostic.Create(
-            RuleDefinitions.TypeNaming,
+            RuleDefinitions.s_typeNaming,
             symbol.Locations[0],
             kind,
             symbol.Name,

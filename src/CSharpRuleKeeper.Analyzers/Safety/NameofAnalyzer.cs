@@ -31,7 +31,7 @@ public sealed class NameofAnalyzer : DiagnosticAnalyzer
             "GetProperty");
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.Nameof);
+        ImmutableArray.Create(RuleDefinitions.s_nameof);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -63,7 +63,7 @@ public sealed class NameofAnalyzer : DiagnosticAnalyzer
             ImmutableDictionary<string, string?> properties =
                 ImmutableDictionary<string, string?>.Empty.Add("Identifier", identifier);
             context.ReportDiagnostic(Diagnostic.Create(
-                RuleDefinitions.Nameof,
+                RuleDefinitions.s_nameof,
                 literal.GetLocation(),
                 properties,
                 identifier,
@@ -83,20 +83,15 @@ public sealed class NameofAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
-        IMethodSymbol? constructor = context.SemanticModel.GetSymbolInfo(
-            creation,
-            context.CancellationToken).Symbol as IMethodSymbol;
+        IMethodSymbol? constructor = GetMethodSymbol(context, creation);
         if (constructor is null ||
             !s_argumentExceptionTypes.Contains(constructor.ContainingType.ToDisplayString()))
         {
             return false;
         }
 
-        IArgumentOperation? operation = context.SemanticModel.GetOperation(
-            argument,
-            context.CancellationToken) as IArgumentOperation;
-        if (operation?.Parameter?.Name != "paramName" ||
-            !MatchesContainingParameter(context, argument, identifier))
+        if (GetParameterName(context, argument) != "paramName" ||
+            !HasMatchingParameter(context, argument, identifier))
         {
             return false;
         }
@@ -117,16 +112,11 @@ public sealed class NameofAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
-        IMethodSymbol? constructor = context.SemanticModel.GetSymbolInfo(
-            creation,
-            context.CancellationToken).Symbol as IMethodSymbol;
-        IArgumentOperation? operation = context.SemanticModel.GetOperation(
-            argument,
-            context.CancellationToken) as IArgumentOperation;
+        IMethodSymbol? constructor = GetMethodSymbol(context, creation);
         if (constructor?.ContainingType.ToDisplayString() !=
                 "System.ComponentModel.PropertyChangedEventArgs" ||
-            operation?.Parameter?.Name != "propertyName" ||
-            !MatchesContainingMember(context, argument, identifier))
+            GetParameterName(context, argument) != "propertyName" ||
+            !HasMatchingMember(context, argument, identifier))
         {
             return false;
         }
@@ -147,15 +137,27 @@ public sealed class NameofAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
-        IMethodSymbol? method = context.SemanticModel.GetSymbolInfo(
-            invocation,
-            context.CancellationToken).Symbol as IMethodSymbol;
+        IMethodSymbol? method = GetMethodSymbol(context, invocation);
         if (method?.ContainingType.ToDisplayString() != "System.Type" ||
             !s_reflectionMethods.Contains(method.Name))
         {
             return false;
         }
 
+        if (!IsTypeOfContainingMember(context, invocation, identifier))
+        {
+            return false;
+        }
+
+        identifierKind = "member";
+        return true;
+    }
+
+    static bool IsTypeOfContainingMember(
+        SyntaxNodeAnalysisContext context,
+        InvocationExpressionSyntax invocation,
+        string identifier)
+    {
         if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess ||
             memberAccess.Expression is not TypeOfExpressionSyntax typeOfExpression)
         {
@@ -168,17 +170,24 @@ public sealed class NameofAnalyzer : DiagnosticAnalyzer
         INamedTypeSymbol? containingType = context.SemanticModel.GetEnclosingSymbol(
             invocation.SpanStart,
             context.CancellationToken)?.ContainingType;
-        if (!SymbolEqualityComparer.Default.Equals(reflectedType, containingType) ||
-            containingType?.GetMembers(identifier).Length == 0)
-        {
-            return false;
-        }
-
-        identifierKind = "member";
-        return true;
+        return SymbolEqualityComparer.Default.Equals(reflectedType, containingType) &&
+            containingType?.GetMembers(identifier).Length != 0;
     }
 
-    static bool MatchesContainingParameter(
+    static IMethodSymbol? GetMethodSymbol(SyntaxNodeAnalysisContext context, SyntaxNode node)
+    {
+        return context.SemanticModel.GetSymbolInfo(node, context.CancellationToken).Symbol as IMethodSymbol;
+    }
+
+    static string? GetParameterName(SyntaxNodeAnalysisContext context, ArgumentSyntax argument)
+    {
+        IArgumentOperation? operation = context.SemanticModel.GetOperation(
+            argument,
+            context.CancellationToken) as IArgumentOperation;
+        return operation?.Parameter?.Name;
+    }
+
+    static bool HasMatchingParameter(
         SyntaxNodeAnalysisContext context,
         SyntaxNode node,
         string identifier)
@@ -189,7 +198,7 @@ public sealed class NameofAnalyzer : DiagnosticAnalyzer
         return method?.Parameters.Any(parameter => parameter.Name == identifier) == true;
     }
 
-    static bool MatchesContainingMember(
+    static bool HasMatchingMember(
         SyntaxNodeAnalysisContext context,
         SyntaxNode node,
         string identifier)

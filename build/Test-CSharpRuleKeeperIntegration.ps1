@@ -3,7 +3,7 @@ param()
 
 $ErrorActionPreference = "Stop"
 $toolRoot = Split-Path -Parent $PSScriptRoot
-$fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) "CSharpRuleKeeper 통합 (한글)-$([Guid]::NewGuid().ToString('N'))"
+$fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) "CSharpRuleKeeper integration (non-ascii path)-$([Guid]::NewGuid().ToString('N'))"
 $analyzerPath = Join-Path $toolRoot "src\CSharpRuleKeeper.Analyzers\bin\Release\netstandard2.0\CSharpRuleKeeper.Analyzers.dll"
 
 function Assert-True([bool]$Condition, [string]$Message)
@@ -17,34 +17,28 @@ function Invoke-Checker([string]$SolutionPath, [string]$ReportPath, [string]$Jso
     return $LASTEXITCODE
 }
 
-function Invoke-CheckerProcess([string[]]$Arguments)
+function Write-ProjectFiles([string]$Directory, [bool]$HasBuildExtension)
 {
-    $allArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot\Invoke-CSharpRuleKeeper.ps1") + $Arguments
-    $quotedArguments = @($allArguments | ForEach-Object {
-        if ($_ -notmatch '[\s"]') { $_ } else { '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' }
-    }) -join " "
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = "powershell"
-    $startInfo.Arguments = $quotedArguments
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    try
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+    $extensionProperty = if ($HasBuildExtension) { "<CustomAfterMicrosoftCommonTargets>`$(MSBuildProjectDirectory)\marker.targets</CustomAfterMicrosoftCommonTargets>" } else { "" }
+    @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    $extensionProperty
+  </PropertyGroup>
+</Project>
+"@ | Set-Content -LiteralPath (Join-Path $Directory "Fixture.csproj") -Encoding UTF8
+    if ($HasBuildExtension)
     {
-        $null = $process.Start()
-        $stdout = $process.StandardOutput.ReadToEndAsync()
-        $stderr = $process.StandardError.ReadToEndAsync()
-        $process.WaitForExit()
-        Write-Host $stdout.Result
-        if ($stderr.Result) { Write-Host $stderr.Result }
-        return $process.ExitCode
-    }
-    finally
-    {
-        $process.Dispose()
+        @"
+<Project>
+  <Target Name="WriteMarker" AfterTargets="Build">
+    <WriteLinesToFile File="`$(MSBuildProjectDirectory)\marker.txt" Lines="ran" Overwrite="true" />
+  </Target>
+</Project>
+"@ | Set-Content -LiteralPath (Join-Path $Directory "marker.targets") -Encoding UTF8
     }
 }
 
@@ -59,22 +53,7 @@ indent_style = space
 indent_size = 4
 dotnet_diagnostic.HBCS002.severity = warning
 "@ | Set-Content -LiteralPath (Join-Path $fixtureRoot ".editorconfig") -Encoding UTF8
-    @"
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <CustomAfterMicrosoftCommonTargets>`$(MSBuildProjectDirectory)\marker.targets</CustomAfterMicrosoftCommonTargets>
-  </PropertyGroup>
-</Project>
-"@ | Set-Content -LiteralPath (Join-Path $fixtureRoot "Fixture.csproj") -Encoding UTF8
-    @"
-<Project>
-  <Target Name="WriteMarker" AfterTargets="Build">
-    <WriteLinesToFile File="`$(MSBuildProjectDirectory)\marker.txt" Lines="ran" Overwrite="true" />
-  </Target>
-</Project>
-"@ | Set-Content -LiteralPath (Join-Path $fixtureRoot "marker.targets") -Encoding UTF8
+    Write-ProjectFiles $fixtureRoot $true
     @"
 using System;
 
@@ -93,12 +72,12 @@ sealed class Example
     $sourceHash = (Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash
     $normalExitCode = Invoke-Checker (Join-Path $fixtureRoot "Fixture.csproj") (Join-Path $fixtureRoot "report.md") (Join-Path $fixtureRoot "report.json")
     $result = Get-Content -LiteralPath (Join-Path $fixtureRoot "report.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-    Assert-True ($normalExitCode -eq 0) "정상 fixture가 성공하지 않았다. 종료 코드: $normalExitCode, 분석: $($result.analysisStatus), 오류: $($result.executionErrors -join '; ')"
-    Assert-True ($result.analysisCompleted -eq $true) "분석 완료가 입증되지 않았다."
-    Assert-True ($result.totalDiagnostics -eq 0) "정상 fixture에 진단이 있다."
-    Assert-True (Test-Path -LiteralPath (Join-Path $fixtureRoot "marker.txt")) "기존 CustomAfterMicrosoftCommonTargets가 실행되지 않았다."
-    Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Fixture.csproj")).Hash -eq $projectHash) "프로젝트 파일이 변경됐다."
-    Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash -eq $sourceHash) "기본 검사에서 소스가 변경됐다."
+    Assert-True ($normalExitCode -eq 0) "The clean fixture did not succeed. Exit code: $normalExitCode, analysis: $($result.analysisStatus), errors: $($result.executionErrors -join '; ')"
+    Assert-True ($result.analysisCompleted -eq $true) "Analysis completion was not proven."
+    Assert-True ($result.totalDiagnostics -eq 0) "The clean fixture reported diagnostics."
+    Assert-True (Test-Path -LiteralPath (Join-Path $fixtureRoot "marker.txt")) "The project's own CustomAfterMicrosoftCommonTargets did not run."
+    Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Fixture.csproj")).Hash -eq $projectHash) "The project file was modified."
+    Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash -eq $sourceHash) "The default check modified the source."
 
     @"
 using System;
@@ -111,12 +90,40 @@ sealed class Example
     foreach ($attempt in 1..2)
     {
         $violationExitCode = Invoke-Checker (Join-Path $fixtureRoot "Fixture.csproj") (Join-Path $fixtureRoot "violation-$attempt.md") (Join-Path $fixtureRoot "violation-$attempt.json")
-        Assert-True ($violationExitCode -eq 1) "HBCS001 fixture 종료 코드가 1이 아니다."
+        Assert-True ($violationExitCode -eq 1) "The HBCS001 fixture exit code is not 1."
         $violation = Get-Content -LiteralPath (Join-Path $fixtureRoot "violation-$attempt.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-        Assert-True (@($violation.diagnostics | Where-Object ruleId -eq "HBCS001").Count -ge 1) "HBCS001이 수집되지 않았다."
+        Assert-True ($violation.totalDiagnostics -eq 1 -and @($violation.diagnostics | Where-Object ruleId -eq "HBCS001").Count -eq 1) "HBCS001 should be reported exactly once, got $($violation.totalDiagnostics)."
     }
 
-    Write-Host "CSharpRuleKeeper 통합 테스트가 통과했다."
+    # Solution target: only the project that defines CustomAfterMicrosoftCommonTargets may run its extension.
+    $solutionRoot = Join-Path $fixtureRoot "solution"
+    New-Item -ItemType Directory -Path $solutionRoot | Out-Null
+    Write-ProjectFiles (Join-Path $solutionRoot "WithExtension") $true
+    Write-ProjectFiles (Join-Path $solutionRoot "WithoutExtension") $false
+    foreach ($projectName in @("WithExtension", "WithoutExtension"))
+    {
+        "sealed class Clean { }" | Set-Content -LiteralPath (Join-Path $solutionRoot "$projectName\Program.cs") -Encoding UTF8
+    }
+    Push-Location $solutionRoot
+    try
+    {
+        & dotnet new sln --name Fixture --format sln | Out-Host
+        & dotnet sln Fixture.sln add (Join-Path $solutionRoot "WithExtension\Fixture.csproj") (Join-Path $solutionRoot "WithoutExtension\Fixture.csproj") | Out-Host
+        & dotnet restore Fixture.sln | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "solution fixture restore failed" }
+    }
+    finally
+    {
+        Pop-Location
+    }
+
+    $solutionExitCode = Invoke-Checker (Join-Path $solutionRoot "Fixture.sln") (Join-Path $fixtureRoot "solution-report.md") (Join-Path $fixtureRoot "solution-report.json")
+    $solutionResult = Get-Content -LiteralPath (Join-Path $fixtureRoot "solution-report.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True ($solutionExitCode -eq 0) "The solution fixture did not succeed. Exit code: $solutionExitCode, errors: $($solutionResult.executionErrors -join '; ')"
+    Assert-True (Test-Path -LiteralPath (Join-Path $solutionRoot "WithExtension\marker.txt")) "A solution project's own build extension was dropped."
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $solutionRoot "WithoutExtension\marker.txt"))) "A project without a build extension ran another project's extension."
+
+    Write-Host "CSharpRuleKeeper integration tests passed."
 }
 finally
 {

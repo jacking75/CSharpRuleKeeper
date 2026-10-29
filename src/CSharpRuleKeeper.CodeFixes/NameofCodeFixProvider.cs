@@ -37,10 +37,7 @@ public sealed class NameofCodeFixProvider : CodeFixProvider
         string identifier = rawIdentifier;
         SyntaxNode? root = await context.Document.GetSyntaxRootAsync(context.CancellationToken)
             .ConfigureAwait(false);
-        LiteralExpressionSyntax? literal = root?
-            .FindToken(diagnostic.Location.SourceSpan.Start)
-            .Parent?
-            .FirstAncestorOrSelf<LiteralExpressionSyntax>();
+        LiteralExpressionSyntax? literal = FindLiteral(root, diagnostic);
         if (literal is null)
         {
             return;
@@ -56,6 +53,14 @@ public sealed class NameofCodeFixProvider : CodeFixProvider
                     cancellationToken),
                 equivalenceKey: "UseNameof"),
             diagnostic);
+    }
+
+    static LiteralExpressionSyntax? FindLiteral(SyntaxNode? root, Diagnostic diagnostic)
+    {
+        return root?
+            .FindToken(diagnostic.Location.SourceSpan.Start)
+            .Parent?
+            .FirstAncestorOrSelf<LiteralExpressionSyntax>();
     }
 
     static async Task<Document> ReplaceWithNameofAsync(

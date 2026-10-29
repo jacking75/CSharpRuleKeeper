@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using CSharpRuleKeeper.Analyzers.Infrastructure;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -25,7 +26,7 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
     };
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.BooleanName);
+        ImmutableArray.Create(RuleDefinitions.s_booleanName);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -72,19 +73,9 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
             declaration,
             context.CancellationToken);
 
-        if (parameter is null || !AnalysisUtilities.IsBoolean(parameter.Type))
-        {
-            return;
-        }
-
-        if (AnalysisUtilities.IsExternalContract(parameter.ContainingSymbol))
-        {
-            return;
-        }
-
-        if (parameter.RefKind == RefKind.Out &&
-            parameter.ContainingSymbol is IMethodSymbol containingMethod &&
-            containingMethod.Name.StartsWith("Try", StringComparison.Ordinal))
+        if (parameter is null ||
+            !AnalysisUtilities.IsBoolean(parameter.Type) ||
+            IsExemptParameter(parameter))
         {
             return;
         }
@@ -96,6 +87,18 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
             parameter.Name,
             "parameter",
             s_statePrefixes);
+    }
+
+    static bool IsExemptParameter(IParameterSymbol parameter)
+    {
+        if (AnalysisUtilities.IsExternalContract(parameter.ContainingSymbol))
+        {
+            return true;
+        }
+
+        return parameter.RefKind == RefKind.Out &&
+            parameter.ContainingSymbol is IMethodSymbol containingMethod &&
+            containingMethod.Name.StartsWith("Try", StringComparison.Ordinal);
     }
 
     static void AnalyzeProperty(SyntaxNodeAnalysisContext context)
@@ -130,7 +133,8 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
 
         if (method is null ||
             !AnalysisUtilities.IsBoolean(method.ReturnType) ||
-            AnalysisUtilities.IsExternalContract(method))
+            AnalysisUtilities.IsExternalContract(method) ||
+            IsTryPatternMethod(method))
         {
             return;
         }
@@ -161,11 +165,17 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
         }
 
         context.ReportDiagnostic(Diagnostic.Create(
-            RuleDefinitions.BooleanName,
+            RuleDefinitions.s_booleanName,
             location,
             symbolKind,
             reportedName,
             string.Join(", ", prefixes)));
+    }
+
+    static bool IsTryPatternMethod(IMethodSymbol method)
+    {
+        return HasWordPrefix(method.Name, "Try") &&
+            method.Parameters.Any(parameter => parameter.RefKind == RefKind.Out);
     }
 
     static bool HasWordPrefix(string name, string prefix)

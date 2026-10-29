@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,7 +13,7 @@ namespace CSharpRuleKeeper.Analyzers.Tests;
 public sealed class SafetyAndStyleAnalyzerTests
 {
     [Fact]
-    public async Task Nameof_reports_only_verified_parameters_and_members()
+    public async Task Nameof_reports_only_verified_parameters_and_membersAsync()
     {
         const string source = """
             using System;
@@ -41,7 +42,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Nameof_ignores_external_protocol_strings_and_unknown_identifiers()
+    public async Task Nameof_ignores_external_protocol_strings_and_unknown_identifiersAsync()
     {
         const string source = """
             using System;
@@ -67,7 +68,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Nameof_code_fix_replaces_literal_and_clears_diagnostic()
+    public async Task Nameof_code_fix_replaces_literal_and_clears_diagnosticAsync()
     {
         const string source = """
             using System;
@@ -95,7 +96,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Nameof_code_fix_supports_reserved_identifiers_and_multiple_diagnostics()
+    public async Task Nameof_code_fix_supports_reserved_identifiers_and_multiple_diagnosticsAsync()
     {
         const string source = """
             using System;
@@ -113,7 +114,7 @@ public sealed class SafetyAndStyleAnalyzerTests
         NameofAnalyzer analyzer = new();
         NameofCodeFixProvider provider = new();
         string fixedSource = source;
-        for (int index = 0; index < 3; index++)
+        for (Int32 index = 0; index < 3; index++)
         {
             fixedSource = await AnalyzerTestHarness.ApplyFirstCodeFixAsync(
                 analyzer,
@@ -132,7 +133,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Layout_reports_three_trailing_comments_and_allows_independent_comments()
+    public async Task Layout_reports_three_trailing_comments_and_allows_independent_commentsAsync()
     {
         const string source = """
             /// <summary>Example.</summary>
@@ -156,7 +157,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Layout_reports_each_excess_blank_line()
+    public async Task Layout_reports_each_excess_blank_lineAsync()
     {
         const string source = "class Example\r\n{\r\n\r\n\r\n\r\n}\r\n";
 
@@ -170,7 +171,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Layout_allows_a_single_blank_line()
+    public async Task Layout_allows_a_single_blank_lineAsync()
     {
         const string source = "class Example\r\n{\r\n\r\n}\r\n";
 
@@ -184,7 +185,23 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Layout_honors_maximum_line_length_boundary()
+    public async Task Layout_ignores_blank_lines_inside_multiline_string_literalsAsync()
+    {
+        const string source =
+            "class Example\r\n{\r\n    string Text = \"\"\"\r\n        a\r\n\r\n\r\n        b\r\n" +
+            "        \"\"\";\r\n}\r\n";
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new LayoutAnalyzer(),
+            source);
+
+        Assert.DoesNotContain(
+            diagnostics,
+            diagnostic => diagnostic.Id == RuleIds.ConsecutiveBlankLines);
+    }
+
+    [Fact]
+    public async Task Layout_honors_maximum_line_length_boundaryAsync()
     {
         Dictionary<string, string> options = new()
         {
@@ -211,7 +228,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Layout_reports_each_long_line()
+    public async Task Layout_reports_each_long_lineAsync()
     {
         Dictionary<string, string> options = new()
         {
@@ -230,7 +247,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task IntegerTypeName_reports_all_four_width_ambiguous_keywords()
+    public async Task IntegerTypeName_reports_all_four_width_ambiguous_keywordsAsync()
     {
         const string source = """
             sealed class Example
@@ -249,7 +266,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task IntegerTypeName_accepts_explicit_width_names_and_other_aliases()
+    public async Task IntegerTypeName_accepts_explicit_width_names_and_other_aliasesAsync()
     {
         const string source = """
             using System;
@@ -270,7 +287,7 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
-    public async Task Generated_code_is_ignored_by_safety_and_style_analyzers()
+    public async Task Generated_code_is_ignored_by_safety_and_style_analyzersAsync()
     {
         const string source = """
             using System;

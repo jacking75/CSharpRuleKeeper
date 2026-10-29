@@ -47,7 +47,7 @@ static class AnalysisUtilities
             interfaceType.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>");
     }
 
-    public static bool ImplementsInterfaceMember(ISymbol symbol)
+    public static bool IsInterfaceImplementation(ISymbol symbol)
     {
         INamedTypeSymbol? containingType = symbol.ContainingType;
         if (containingType is null)
@@ -75,7 +75,7 @@ static class AnalysisUtilities
     {
         return symbol.IsOverride ||
             GetExplicitInterfaceImplementations(symbol).Length > 0 ||
-            ImplementsInterfaceMember(symbol);
+            IsInterfaceImplementation(symbol);
     }
 
     static ImmutableArray<ISymbol> GetExplicitInterfaceImplementations(ISymbol symbol)
@@ -84,7 +84,9 @@ static class AnalysisUtilities
         {
             IMethodSymbol method => method.ExplicitInterfaceImplementations.Cast<ISymbol>().ToImmutableArray(),
             IPropertySymbol property => property.ExplicitInterfaceImplementations.Cast<ISymbol>().ToImmutableArray(),
-            IEventSymbol declaredEvent => declaredEvent.ExplicitInterfaceImplementations.Cast<ISymbol>().ToImmutableArray(),
+            IEventSymbol declaredEvent => declaredEvent.ExplicitInterfaceImplementations
+                .Cast<ISymbol>()
+                .ToImmutableArray(),
             _ => ImmutableArray<ISymbol>.Empty,
         };
     }
@@ -114,7 +116,26 @@ static class AnalysisUtilities
         return name;
     }
 
-    public static int CountPhysicalLines(SyntaxNode declaration)
+    public static DiagnosticDescriptor? SelectLengthDescriptor(
+        Int32 lineCount,
+        (Int32 Warning, Int32 Error) limits,
+        DiagnosticDescriptor warningDescriptor,
+        DiagnosticDescriptor errorDescriptor)
+    {
+        if (lineCount > limits.Error)
+        {
+            return errorDescriptor;
+        }
+
+        return lineCount > limits.Warning ? warningDescriptor : null;
+    }
+
+    public static Int32 GetExceededLimit(DiagnosticDescriptor descriptor, (Int32 Warning, Int32 Error) limits)
+    {
+        return descriptor.DefaultSeverity == DiagnosticSeverity.Error ? limits.Error : limits.Warning;
+    }
+
+    public static Int32 CountPhysicalLines(SyntaxNode declaration)
     {
         SyntaxToken firstToken = declaration.GetFirstToken(includeZeroWidth: true);
         SyntaxToken lastToken = declaration.GetLastToken(includeZeroWidth: true);

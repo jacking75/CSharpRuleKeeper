@@ -10,7 +10,7 @@ namespace CSharpRuleKeeper.Analyzers.Naming;
 public sealed class FieldPrefixAnalyzer : DiagnosticAnalyzer
 {
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.FieldPrefix);
+        ImmutableArray.Create(RuleDefinitions.s_fieldPrefix);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -41,7 +41,7 @@ public sealed class FieldPrefixAnalyzer : DiagnosticAnalyzer
         }
 
         context.ReportDiagnostic(Diagnostic.Create(
-            RuleDefinitions.FieldPrefix,
+            RuleDefinitions.s_fieldPrefix,
             field.Locations[0],
             field.Name,
             requiredPrefix));

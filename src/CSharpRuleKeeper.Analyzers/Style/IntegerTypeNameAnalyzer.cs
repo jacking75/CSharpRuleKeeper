@@ -10,7 +10,7 @@ namespace CSharpRuleKeeper.Analyzers.Style;
 public sealed class IntegerTypeNameAnalyzer : DiagnosticAnalyzer
 {
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.IntegerTypeName);
+        ImmutableArray.Create(RuleDefinitions.s_integerTypeName);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -39,7 +39,7 @@ public sealed class IntegerTypeNameAnalyzer : DiagnosticAnalyzer
         }
 
         context.ReportDiagnostic(Diagnostic.Create(
-            RuleDefinitions.IntegerTypeName,
+            RuleDefinitions.s_integerTypeName,
             predefinedType.GetLocation(),
             replacement,
             predefinedType.Keyword.ValueText));

@@ -10,7 +10,7 @@ namespace CSharpRuleKeeper.Analyzers.Tests;
 public sealed class NamingAnalyzerTests
 {
     [Fact]
-    public async Task PublicField_reports_three_violations_and_allows_safe_cases()
+    public async Task PublicField_reports_three_violations_and_allows_safe_casesAsync()
     {
         const string source = """
             using System;
@@ -36,7 +36,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task PublicField_honors_allowed_attribute_option()
+    public async Task PublicField_honors_allowed_attribute_optionAsync()
     {
         const string source = """
             using System;
@@ -62,7 +62,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task BooleanName_covers_fields_locals_parameters_properties_and_methods()
+    public async Task BooleanName_covers_fields_locals_parameters_properties_and_methodsAsync()
     {
         const string source = """
             using System;
@@ -82,6 +82,12 @@ public sealed class NamingAnalyzerTests
                 {
                     result = true;
                 }
+
+                Boolean TryReadValue(out Int32 value)
+                {
+                    value = 0;
+                    return true;
+                }
             }
             """;
 
@@ -93,7 +99,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task BooleanName_reports_three_invalid_names()
+    public async Task BooleanName_reports_three_invalid_namesAsync()
     {
         const string source = """
             using System;
@@ -107,6 +113,11 @@ public sealed class NamingAnalyzerTests
                 {
                     return value;
                 }
+
+                Boolean TryCheck()
+                {
+                    return true;
+                }
             }
             """;
 
@@ -114,12 +125,12 @@ public sealed class NamingAnalyzerTests
             new BooleanNameAnalyzer(),
             source);
 
-        Assert.Equal(4, diagnostics.Length);
+        Assert.Equal(5, diagnostics.Length);
         Assert.All(diagnostics, diagnostic => Assert.Equal(RuleIds.BooleanName, diagnostic.Id));
     }
 
     [Fact]
-    public async Task CollectionName_accepts_plural_and_irregular_names()
+    public async Task CollectionName_accepts_plural_and_irregular_namesAsync()
     {
         const string source = """
             using System;
@@ -145,7 +156,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task CollectionName_reports_fields_properties_parameters_and_locals()
+    public async Task CollectionName_reports_fields_properties_parameters_and_localsAsync()
     {
         const string source = """
             using System;
@@ -172,7 +183,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task ExplicitPrivate_reports_members_but_not_implicit_or_interface_members()
+    public async Task ExplicitPrivate_reports_members_but_not_implicit_or_interface_membersAsync()
     {
         const string source = """
             using System;
@@ -201,7 +212,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task FieldPrefix_distinguishes_instance_static_and_thread_static_fields()
+    public async Task FieldPrefix_distinguishes_instance_static_and_thread_static_fieldsAsync()
     {
         const string source = """
             using System;
@@ -230,7 +241,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task RequiredNaming_accepts_supported_patterns()
+    public async Task RequiredNaming_accepts_supported_patternsAsync()
     {
         const string source = """
             using System;
@@ -255,7 +266,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task RequiredNaming_reports_interface_attribute_base_and_async_names()
+    public async Task RequiredNaming_reports_interface_attribute_base_and_async_namesAsync()
     {
         const string source = """
             using System;
@@ -280,7 +291,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task Naming_analyzers_preserve_implicit_interface_contracts()
+    public async Task Naming_analyzers_preserve_implicit_interface_contractsAsync()
     {
         const string source = """
             using System;
@@ -325,13 +336,19 @@ public sealed class NamingAnalyzerTests
         Assert.Equal(2, booleanDiagnostics.Length);
         Assert.Single(collectionDiagnostics);
         Assert.Equal(2, requiredDiagnostics.Length);
-        Assert.DoesNotContain(booleanDiagnostics, diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
-        Assert.DoesNotContain(collectionDiagnostics, diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
-        Assert.DoesNotContain(requiredDiagnostics, diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
+        Assert.DoesNotContain(
+            booleanDiagnostics,
+            diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
+        Assert.DoesNotContain(
+            collectionDiagnostics,
+            diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
+        Assert.DoesNotContain(
+            requiredDiagnostics,
+            diagnostic => diagnostic.Location.GetLineSpan().StartLinePosition.Line > 12);
     }
 
     [Fact]
-    public async Task CollectionName_recognizes_IEnumerable_and_documents_suffix_limit()
+    public async Task CollectionName_recognizes_IEnumerable_and_documents_suffix_limitAsync()
     {
         const string source = """
             using System;
@@ -352,7 +369,7 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
-    public async Task Generated_code_is_ignored_by_naming_analyzers()
+    public async Task Generated_code_is_ignored_by_naming_analyzersAsync()
     {
         const string source = """
             using System;

@@ -15,7 +15,7 @@ public sealed class MagicNumberAnalyzer : DiagnosticAnalyzer
     static readonly string[] s_defaultAllowedValues = { "-1", "0", "1", "2" };
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.MagicNumber);
+        ImmutableArray.Create(RuleDefinitions.s_magicNumber);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -33,12 +33,12 @@ public sealed class MagicNumberAnalyzer : DiagnosticAnalyzer
     static void AnalyzeLiteral(SyntaxNodeAnalysisContext context, bool isTestAssembly)
     {
         LiteralExpressionSyntax literal = (LiteralExpressionSyntax)context.Node;
-        bool analyzeTestProjects = AnalyzerOptionsReader.GetBoolean(
+        bool shouldAnalyzeTestProjects = AnalyzerOptionsReader.IsEnabled(
             context.Options,
             literal.SyntaxTree,
             "analyze_test_projects",
-            defaultValue: false);
-        if (isTestAssembly && !analyzeTestProjects)
+            isEnabledByDefault: false);
+        if (isTestAssembly && !shouldAnalyzeTestProjects)
         {
             return;
         }
@@ -49,20 +49,25 @@ public sealed class MagicNumberAnalyzer : DiagnosticAnalyzer
         }
 
         (string value, SyntaxNode diagnosticNode) = GetLiteralValue(literal);
-        ImmutableHashSet<string> allowedValues = AnalyzerOptionsReader.GetSet(
-            context.Options,
-            literal.SyntaxTree,
-            "allow_magic_numbers",
-            s_defaultAllowedValues);
-        if (allowedValues.Contains(value))
+        if (IsAllowedValue(context, literal, value))
         {
             return;
         }
 
         context.ReportDiagnostic(Diagnostic.Create(
-            RuleDefinitions.MagicNumber,
+            RuleDefinitions.s_magicNumber,
             diagnosticNode.GetLocation(),
             value));
+    }
+
+    static bool IsAllowedValue(SyntaxNodeAnalysisContext context, LiteralExpressionSyntax literal, string value)
+    {
+        ImmutableHashSet<string> allowedValues = AnalyzerOptionsReader.GetSet(
+            context.Options,
+            literal.SyntaxTree,
+            "allow_magic_numbers",
+            s_defaultAllowedValues);
+        return allowedValues.Contains(value);
     }
 
     static bool IsExcludedContext(LiteralExpressionSyntax literal)
@@ -73,19 +78,9 @@ public sealed class MagicNumberAnalyzer : DiagnosticAnalyzer
             return true;
         }
 
-        if (literal.FirstAncestorOrSelf<VariableDeclarationSyntax>() is VariableDeclarationSyntax declaration)
+        if (IsConstantInitializer(literal))
         {
-            SyntaxNode? owner = declaration.Parent;
-            if (owner is LocalDeclarationStatementSyntax local &&
-                local.Modifiers.Any(SyntaxKind.ConstKeyword))
-            {
-                return true;
-            }
-
-            if (owner is FieldDeclarationSyntax field && field.Modifiers.Any(SyntaxKind.ConstKeyword))
-            {
-                return true;
-            }
+            return true;
         }
 
         if (literal.Parent is BinaryExpressionSyntax binary &&
@@ -96,6 +91,19 @@ public sealed class MagicNumberAnalyzer : DiagnosticAnalyzer
 
         return literal.Parent?.Parent is BinaryExpressionSyntax parentBinary &&
             parentBinary.IsKind(SyntaxKind.LeftShiftExpression);
+    }
+
+    static bool IsConstantInitializer(LiteralExpressionSyntax literal)
+    {
+        if (literal.FirstAncestorOrSelf<VariableDeclarationSyntax>() is not VariableDeclarationSyntax declaration)
+        {
+            return false;
+        }
+
+        SyntaxNode? owner = declaration.Parent;
+        return owner is LocalDeclarationStatementSyntax local &&
+                local.Modifiers.Any(SyntaxKind.ConstKeyword) ||
+            owner is FieldDeclarationSyntax field && field.Modifiers.Any(SyntaxKind.ConstKeyword);
     }
 
     static (string Value, SyntaxNode DiagnosticNode) GetLiteralValue(LiteralExpressionSyntax literal)

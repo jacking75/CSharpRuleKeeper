@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Immutable;
+using System.Linq;
 using CSharpRuleKeeper.Analyzers.Infrastructure;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -10,13 +12,13 @@ namespace CSharpRuleKeeper.Analyzers.Style;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class LayoutAnalyzer : DiagnosticAnalyzer
 {
-    const int DefaultMaximumLineLength = 120;
+    const Int32 DefaultMaximumLineLength = 120;
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(
-            RuleDefinitions.TrailingComment,
-            RuleDefinitions.ConsecutiveBlankLines,
-            RuleDefinitions.LineLength);
+            RuleDefinitions.s_trailingComment,
+            RuleDefinitions.s_consecutiveBlankLines,
+            RuleDefinitions.s_lineLength);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -51,31 +53,49 @@ public sealed class LayoutAnalyzer : DiagnosticAnalyzer
             }
 
             context.ReportDiagnostic(Diagnostic.Create(
-                RuleDefinitions.TrailingComment,
+                RuleDefinitions.s_trailingComment,
                 Location.Create(context.Tree, trivia.Span)));
         }
     }
 
     static void AnalyzeBlankLines(SyntaxTreeAnalysisContext context, SourceText text)
     {
-        bool previousLineWasBlank = false;
+        ImmutableArray<TextSpan> literalSpans = GetMultiLineLiteralSpans(context);
+        bool isPreviousLineBlank = false;
         foreach (TextLine line in text.Lines)
         {
-            bool isBlank = string.IsNullOrWhiteSpace(line.ToString());
-            if (isBlank && previousLineWasBlank)
+            bool isBlank = string.IsNullOrWhiteSpace(line.ToString()) && !IsInsideAny(literalSpans, line.Span);
+            if (isBlank && isPreviousLineBlank)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    RuleDefinitions.ConsecutiveBlankLines,
+                    RuleDefinitions.s_consecutiveBlankLines,
                     Location.Create(context.Tree, line.Span)));
             }
 
-            previousLineWasBlank = isBlank;
+            isPreviousLineBlank = isBlank;
         }
+    }
+
+    // Blank lines inside a multi-line string literal are content, not layout.
+    static ImmutableArray<TextSpan> GetMultiLineLiteralSpans(SyntaxTreeAnalysisContext context)
+    {
+        SyntaxNode root = context.Tree.GetRoot(context.CancellationToken);
+        return root.DescendantTokens()
+            .Where(token => token.Kind() is SyntaxKind.StringLiteralToken
+                or SyntaxKind.MultiLineRawStringLiteralToken
+                or SyntaxKind.InterpolatedStringTextToken)
+            .Select(token => token.Span)
+            .ToImmutableArray();
+    }
+
+    static bool IsInsideAny(ImmutableArray<TextSpan> spans, TextSpan lineSpan)
+    {
+        return spans.Any(span => span.Start <= lineSpan.Start && lineSpan.End <= span.End);
     }
 
     static void AnalyzeLineLengths(SyntaxTreeAnalysisContext context, SourceText text)
     {
-        int maximumLength = AnalyzerOptionsReader.GetInt(
+        Int32 maximumLength = AnalyzerOptionsReader.GetInt(
             context.Options,
             context.Tree,
             "max_line_length",
@@ -94,7 +114,7 @@ public sealed class LayoutAnalyzer : DiagnosticAnalyzer
 
             TextSpan excessSpan = TextSpan.FromBounds(line.Start + maximumLength, line.End);
             context.ReportDiagnostic(Diagnostic.Create(
-                RuleDefinitions.LineLength,
+                RuleDefinitions.s_lineLength,
                 Location.Create(context.Tree, excessSpan),
                 line.Span.Length,
                 maximumLength));

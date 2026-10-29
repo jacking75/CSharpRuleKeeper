@@ -1,7 +1,5 @@
 ﻿[CmdletBinding()]
 param(
-    [string]$Solution,
-    [string]$BuildLogPath,
     [Parameter(ValueFromPipeline = $true)]
     [AllowEmptyString()]
     [string[]]$BuildOutput,
@@ -15,7 +13,7 @@ param(
     [string]$AnalysisStatus = "unknown",
     [Int32]$BuildExitCode = -1,
     [string]$RunId = ([Guid]::NewGuid().ToString("N")),
-    [string]$ToolVersion = "1.1.0",
+    [string]$ToolVersion,
     [string]$ConfigurationHash,
     [object]$Timings,
     [string]$StartedAt = ([DateTimeOffset]::UtcNow.ToString("o")),
@@ -40,22 +38,23 @@ end
 {
     $ErrorActionPreference = "Stop"
     $reportWatch = [Diagnostics.Stopwatch]::StartNew()
+    if ([string]::IsNullOrWhiteSpace($ToolVersion)) { $ToolVersion = (Get-Content -LiteralPath (Join-Path $PSScriptRoot "version.txt") -Raw).Trim() }
     $ruleGuidance = @{
-        HBCS001 = "외부 API·직렬화·상호 운용 계약을 검토하고 안전할 때만 캡슐화한다."
-        HBCS002 = "외부 계약이 아닌지 확인한 뒤 상태 접두사를 사용한다."
-        HBCS003 = "자연어 판정의 한계를 고려해 복수 대상을 나타내는 이름을 사용한다."
-        HBCS004 = "외부 프로토콜 문자열이 아닌지 확인한 뒤 nameof를 사용한다."
-        HBCS005 = "숫자의 도메인 의미를 이름 있는 상수·열거형·변수로 표현한다."
-        HBCS006 = "공개 계약과 흐름을 보존하며 책임 단위로 메서드를 분리한다."
-        HBCS007 = "공개 계약과 직렬화를 보존하며 타입의 책임을 분리한다."
-        HBCS008 = "실제로 private인 멤버의 접근 제한자만 제거한다."
-        HBCS009 = "주석 내용을 유지하며 독립된 이전 줄로 옮긴다."
-        HBCS010 = "연속 빈 줄을 한 줄로 줄인다."
-        HBCS011 = "진단이 제시한 명시적 비트폭 정수 타입을 사용한다."
-        HBCS012 = "의미를 보존해 식·인수·조건을 여러 줄로 나눈다."
-        HBCS013 = "외부 계약 여부를 먼저 검토하고 요구된 명명 패턴을 적용한다."
-        HBCS014 = "저장 방식에 맞는 필드 접두사로 모든 참조를 함께 바꾼다."
-        HBCS015 = "API와 동작을 보존하며 파일의 책임을 나눈다."
+        HBCS001 = "Review external API, serialization and interop contracts, and encapsulate only when it is safe."
+        HBCS002 = "Confirm the name is not an external contract, then use a state prefix. Try-prefixed methods with an out parameter are exempt."
+        HBCS003 = "Natural-language detection has limits; use a name that clearly denotes multiple items."
+        HBCS004 = "Confirm the string is not an external protocol string, then use nameof."
+        HBCS005 = "Express the domain meaning of the number as a named constant, enum or variable."
+        HBCS006 = "Split the method by responsibility while preserving the public contract and control flow."
+        HBCS007 = "Split the type by responsibility while preserving the public contract and serialization."
+        HBCS008 = "Remove the access modifier only from members that are actually private."
+        HBCS009 = "Keep the comment text and move it to its own preceding line."
+        HBCS010 = "Reduce consecutive blank lines to one."
+        HBCS011 = "Use the explicit-width integer type named in the diagnostic."
+        HBCS012 = "Split the expression, arguments or condition across lines without changing its meaning."
+        HBCS013 = "Check for an external contract first, then apply the required naming pattern."
+        HBCS014 = "Use the field prefix that matches the storage kind and rename every reference together."
+        HBCS015 = "Split the file by responsibility while preserving the API and behavior."
     }
     $severityOrder = @{ error = 0; warning = 1; info = 2; hidden = 3 }
     $diagnostics = [Collections.Generic.List[object]]::new()
@@ -80,7 +79,8 @@ end
             line = $Line
             column = $Column
             message = $Message
-            helpUri = "https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/REFERENCE_GUIDE.html#$RuleId"
+            helpUri = "https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/RULES.md#$($RuleId.ToLowerInvariant())"
+            fixCaution = $ruleGuidance[$RuleId]
             requiresContractReview = $RuleId -in @("HBCS001", "HBCS002", "HBCS003", "HBCS004", "HBCS013", "HBCS014")
         })
     }
@@ -90,7 +90,7 @@ end
         if (-not (Test-Path -LiteralPath $sarifPath)) { continue }
         $sarif = Get-Content -LiteralPath $sarifPath -Raw -Encoding UTF8 | ConvertFrom-Json
         $sarifName = [IO.Path]::GetFileNameWithoutExtension($sarifPath)
-        $sarifMatch = [regex]::Match($sarifName, "^(?<project>.+?)-(?<framework>net[^-]+)-(?<configuration>[^-]+)$")
+        $sarifMatch = [regex]::Match($sarifName, "^(?<project>.+?)-(?<framework>net[^-]+)-(?<configuration>[^-]+)(-+[0-9]+)?$")
         foreach ($run in @($sarif.runs))
         {
             foreach ($result in @($run.results))
@@ -107,26 +107,36 @@ end
         }
     }
 
-    $lines = if (-not [string]::IsNullOrWhiteSpace($BuildLogPath)) {
-        @(Get-Content -LiteralPath $BuildLogPath -Encoding UTF8)
-    } elseif (-not [string]::IsNullOrWhiteSpace($Solution)) {
-        $output = @(& dotnet build $Solution --no-restore --configuration Debug 2>&1 | ForEach-Object { $_.ToString() })
-        $BuildExitCode = $LASTEXITCODE
-        $output
-    } else {
-        $pipelineLines.ToArray()
-    }
-    $pattern = [regex]"^(?<path>.+?)\((?<line>\d+),(?<column>\d+)\):\s*(?<severity>error|warning|info)\s+(?<id>HBCS\d{3}):\s*(?<message>.*?)(?:\s+\[.*\])?$"
-    foreach ($line in $lines)
+    # SARIF is the primary source. Console output is parsed only when SARIF yielded nothing,
+    # otherwise every diagnostic would be counted twice.
+    if ($diagnostics.Count -eq 0)
     {
-        $match = $pattern.Match($line)
-        if ($match.Success)
+        $pattern = [regex]"^(?<path>.+?)\((?<line>\d+),(?<column>\d+)\):\s*(?<severity>error|warning|info)\s+(?<id>HBCS\d{3}):\s*(?<message>.*?)(?:\s+\[.*\])?$"
+        foreach ($line in $pipelineLines.ToArray())
         {
-            Add-Diagnostic $match.Groups["id"].Value $match.Groups["severity"].Value $null $null $match.Groups["path"].Value ([Int32]$match.Groups["line"].Value) ([Int32]$match.Groups["column"].Value) $match.Groups["message"].Value
+            $match = $pattern.Match($line)
+            if ($match.Success)
+            {
+                Add-Diagnostic $match.Groups["id"].Value $match.Groups["severity"].Value $null $null $match.Groups["path"].Value ([Int32]$match.Groups["line"].Value) ([Int32]$match.Groups["column"].Value) $match.Groups["message"].Value
+            }
         }
     }
 
-    $normalized = @($diagnostics | Sort-Object @{ Expression = { $severityOrder[$_.severity] } }, project, targetFramework, path, line, column, ruleId, message -Unique)
+    # The same location reported once per target framework is a single fix point.
+    $uniqueDiagnostics = [Collections.Generic.Dictionary[string, object]]::new()
+    foreach ($diagnostic in $diagnostics)
+    {
+        $key = "$($diagnostic.ruleId)|$($diagnostic.path)|$($diagnostic.line)|$($diagnostic.column)|$($diagnostic.message)"
+        if (-not $uniqueDiagnostics.ContainsKey($key))
+        {
+            $uniqueDiagnostics[$key] = $diagnostic
+            continue
+        }
+        $kept = $uniqueDiagnostics[$key]
+        $frameworks = @(@("$($kept.targetFramework)" -split ";") + @("$($diagnostic.targetFramework)" -split ";") | Where-Object { $_ } | Select-Object -Unique)
+        if ($frameworks.Count -gt 0) { $kept.targetFramework = $frameworks -join ";" }
+    }
+    $normalized = @($uniqueDiagnostics.Values | Sort-Object @{ Expression = { $severityOrder[$_.severity] } }, project, targetFramework, path, line, column, ruleId, message)
     $baselineSummary = [ordered]@{ new = $normalized.Count; existing = 0; resolved = 0; state = "notUsed" }
     $fingerprints = @($normalized | ForEach-Object {
         $value = "$($_.ruleId)|$($_.path)|$($_.message)"
@@ -138,7 +148,7 @@ end
     {
         if ($CreateBaseline)
         {
-            if ($AnalysisStatus -ne "passed") { throw "분석이 완료된 경우에만 기준선을 만들 수 있다." }
+            if ($AnalysisStatus -ne "passed") { throw "A baseline can only be created when the analysis completed." }
             $baseline = [ordered]@{
                 schemaVersion = 1
                 toolVersion = $ToolVersion
@@ -164,7 +174,7 @@ end
         }
         else
         {
-            throw "기준선 파일을 찾을 수 없다: $BaselinePath"
+            throw "Baseline file not found: $BaselinePath"
         }
     }
 
@@ -194,38 +204,38 @@ end
     if ([string]::IsNullOrWhiteSpace($JsonOutputPath)) { $JsonOutputPath = [IO.Path]::ChangeExtension($OutputPath, ".json") }
     $displayed = @($normalized | Select-Object -First $MaxDiagnostics)
     $report = [Collections.Generic.List[string]]::new()
-    $report.Add("# CSharpRuleKeeper 실행 보고서")
+    $report.Add("# CSharpRuleKeeper Run Report")
     $report.Add("")
-    $report.Add("- 실행 ID: ``$RunId``")
-    $report.Add("- 도구 버전: $ToolVersion")
-    $report.Add("- 대상: ``$Target``")
-    $report.Add("- 시작: $StartedAt")
-    $report.Add("- 종료: $($resultObject.finishedAt)")
-    $report.Add("- 전체 상태: **$status**")
-    $report.Add("- 서식 상태: **$FormatStatus**")
-    $report.Add("- 빌드 종료 코드: **$BuildExitCode**")
-    $report.Add("- 분석 상태: **$AnalysisStatus** (완료: $analysisCompleted)")
-    $report.Add("- HBCS 진단: $($normalized.Count)개 (표시 $($displayed.Count)개, 생략 $($resultObject.omittedDiagnostics)개)")
-    $report.Add("- 전체 JSON: ``$JsonOutputPath``")
+    $report.Add("- Run ID: ``$RunId``")
+    $report.Add("- Tool version: $ToolVersion")
+    $report.Add("- Target: ``$Target``")
+    $report.Add("- Started: $StartedAt")
+    $report.Add("- Finished: $($resultObject.finishedAt)")
+    $report.Add("- Overall status: **$status**")
+    $report.Add("- Format status: **$FormatStatus**")
+    $report.Add("- Build exit code: **$BuildExitCode**")
+    $report.Add("- Analysis status: **$AnalysisStatus** (completed: $analysisCompleted)")
+    $report.Add("- HBCS diagnostics: $($normalized.Count) (shown $($displayed.Count), omitted $($resultObject.omittedDiagnostics))")
+    $report.Add("- Full JSON: ``$JsonOutputPath``")
     $report.Add("")
-    $report.Add("HBCS 진단 0개와 분석 완료는 서로 다른 상태다. analysisCompleted가 false이면 검사가 끝난 것으로 판단하지 않는다.")
+    $report.Add("Zero HBCS diagnostics and a completed analysis are different things. If analysisCompleted is false, do not treat the check as finished.")
     if ($ExecutionErrors.Count -gt 0)
     {
         $report.Add("")
-        $report.Add("## 실행 오류")
+        $report.Add("## Execution errors")
         $report.Add("")
         foreach ($executionError in $ExecutionErrors) { $report.Add("- $executionError") }
     }
     foreach ($diagnostic in $displayed)
     {
         $report.Add("")
-        $report.Add("## $($diagnostic.ruleId) · $($diagnostic.severity)")
+        $report.Add("## $($diagnostic.ruleId) $([char]0x00B7) $($diagnostic.severity)")
         $report.Add("")
-        $report.Add("- 위치: ``$($diagnostic.path):$($diagnostic.line):$($diagnostic.column)``")
-        if ($diagnostic.project) { $report.Add("- 프로젝트/TFM: ``$($diagnostic.project)`` / ``$($diagnostic.targetFramework)``") }
-        $report.Add("- 진단: $($diagnostic.message -replace '\|', '\\|')")
-        $report.Add("- 도움말: $($diagnostic.helpUri)")
-        $report.Add("- 수정 주의: $($ruleGuidance[$diagnostic.ruleId])")
+        $report.Add("- Location: ``$($diagnostic.path):$($diagnostic.line):$($diagnostic.column)``")
+        if ($diagnostic.project) { $report.Add("- Project/TFM: ``$($diagnostic.project)`` / ``$($diagnostic.targetFramework)``") }
+        $report.Add("- Diagnostic: $($diagnostic.message -replace '\|', '\\|')")
+        $report.Add("- Help: $($diagnostic.helpUri)")
+        $report.Add("- Fix caution: $($diagnostic.fixCaution)")
     }
 
     try
@@ -248,12 +258,12 @@ end
         $resultObject | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $jsonTemp -Encoding UTF8
         Move-Item -LiteralPath $reportTemp -Destination $OutputPath -Force
         Move-Item -LiteralPath $jsonTemp -Destination $JsonOutputPath -Force
-        Write-Host "보고서를 생성했다: $OutputPath"
-        Write-Host "구조화 결과를 생성했다: $JsonOutputPath"
+        Write-Host "Report written: $OutputPath"
+        Write-Host "Structured result written: $JsonOutputPath"
     }
     catch
     {
-        [Console]::Error.WriteLine("보고서 저장에 실패했다: $_")
+        [Console]::Error.WriteLine("Failed to save the report: $_")
         exit 2
     }
 }

@@ -11,13 +11,13 @@ namespace CSharpRuleKeeper.Analyzers.Maintainability;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class TypeLengthAnalyzer : DiagnosticAnalyzer
 {
-    const int DefaultWarningLimit = 300;
-    const int DefaultErrorLimit = 500;
+    const Int32 DefaultWarningLimit = 300;
+    const Int32 DefaultErrorLimit = 500;
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(
-            RuleDefinitions.TypeLengthWarning,
-            RuleDefinitions.TypeLengthError);
+            RuleDefinitions.s_typeLengthWarning,
+            RuleDefinitions.s_typeLengthError);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -43,34 +43,37 @@ public sealed class TypeLengthAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        int lineCount = AnalysisUtilities.CountPhysicalLines(declaration);
-        (int warningLimit, int errorLimit) = AnalyzerOptionsReader.GetLimits(
+        Int32 lineCount = AnalysisUtilities.CountPhysicalLines(declaration);
+        (Int32 Warning, Int32 Error) limits = GetLimits(context, declaration);
+        DiagnosticDescriptor? descriptor = AnalysisUtilities.SelectLengthDescriptor(
+            lineCount,
+            limits,
+            RuleDefinitions.s_typeLengthWarning,
+            RuleDefinitions.s_typeLengthError);
+        if (descriptor is null)
+        {
+            return;
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            declaration.Identifier.GetLocation(),
+            type.Name,
+            lineCount,
+            AnalysisUtilities.GetExceededLimit(descriptor, limits)));
+    }
+
+    static (Int32 Warning, Int32 Error) GetLimits(
+        SyntaxNodeAnalysisContext context,
+        TypeDeclarationSyntax declaration)
+    {
+        return AnalyzerOptionsReader.GetLimits(
             context.Options,
             declaration.SyntaxTree,
             "type_lines_warning",
             "type_lines_error",
             DefaultWarningLimit,
             DefaultErrorLimit);
-
-        DiagnosticDescriptor? descriptor = lineCount > errorLimit
-            ? RuleDefinitions.TypeLengthError
-            : lineCount > warningLimit
-                ? RuleDefinitions.TypeLengthWarning
-                : null;
-        if (descriptor is null)
-        {
-            return;
-        }
-
-        int exceededLimit = descriptor.DefaultSeverity == DiagnosticSeverity.Error
-            ? errorLimit
-            : warningLimit;
-        context.ReportDiagnostic(Diagnostic.Create(
-            descriptor,
-            declaration.Identifier.GetLocation(),
-            type.Name,
-            lineCount,
-            exceededLimit));
     }
 
     static bool IsExcluded(

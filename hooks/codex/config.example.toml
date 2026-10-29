@@ -1,0 +1,9 @@
+# Same hook as hooks.example.json, in config.toml form.
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\tools\\CSharpRuleKeeper\\build\\Invoke-CSharpRuleKeeperHook.ps1\""
+# Use command_windows when the same file is shared with other platforms.
+command_windows = "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\tools\\CSharpRuleKeeper\\build\\Invoke-CSharpRuleKeeperHook.ps1\""
+timeout = 900

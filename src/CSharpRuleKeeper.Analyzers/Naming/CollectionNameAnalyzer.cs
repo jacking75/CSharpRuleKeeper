@@ -24,7 +24,7 @@ public sealed class CollectionNameAnalyzer : DiagnosticAnalyzer
     };
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.CollectionName);
+        ImmutableArray.Create(RuleDefinitions.s_collectionName);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -125,7 +125,7 @@ public sealed class CollectionNameAnalyzer : DiagnosticAnalyzer
         }
 
         context.ReportDiagnostic(Diagnostic.Create(
-            RuleDefinitions.CollectionName,
+            RuleDefinitions.s_collectionName,
             location,
             symbolKind,
             reportedName));

@@ -9,7 +9,7 @@ namespace CSharpRuleKeeper.Analyzers.Naming;
 public sealed class PublicFieldAnalyzer : DiagnosticAnalyzer
 {
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.PublicField);
+        ImmutableArray.Create(RuleDefinitions.s_publicField);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -44,7 +44,7 @@ public sealed class PublicFieldAnalyzer : DiagnosticAnalyzer
         }
 
         context.ReportDiagnostic(Diagnostic.Create(
-            RuleDefinitions.PublicField,
+            RuleDefinitions.s_publicField,
             field.Locations[0],
             field.Name));
     }

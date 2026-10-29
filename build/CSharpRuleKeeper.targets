@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <CSharpRuleKeeperResultFile Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">$(CSharpRuleKeeperResultsRoot)\$(MSBuildProjectName)-$(TargetFramework)-$(Configuration).sarif</CSharpRuleKeeperResultFile>
+    <CSharpRuleKeeperResultFile Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">$(CSharpRuleKeeperResultsRoot)\$(MSBuildProjectName)-$(TargetFramework)-$(Configuration)-$([MSBuild]::StableStringHash('$(MSBuildProjectFullPath)')).sarif</CSharpRuleKeeperResultFile>
     <ErrorLog Condition="'$(CSharpRuleKeeperResultFile)' != ''">$(CSharpRuleKeeperResultFile),version=2.1</ErrorLog>
     <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
     <RunAnalyzers>true</RunAnalyzers>
@@ -9,7 +9,7 @@
   <Target Name="ValidateCSharpRuleKeeperAnalyzerPath"
           BeforeTargets="CoreCompile"
           Condition="'$(CSharpRuleKeeperAnalyzerPath)' == '' Or !Exists('$(CSharpRuleKeeperAnalyzerPath)')">
-    <Error Text="CSharpRuleKeeper Analyzer DLL을 찾을 수 없습니다. Invoke-CSharpRuleKeeper.ps1로 실행해야 합니다." />
+    <Error Text="CSharpRuleKeeper analyzer DLL was not found. Run the check through Invoke-CSharpRuleKeeper.ps1." />
   </Target>
 
   <ItemGroup>
@@ -20,7 +20,7 @@
   <Target Name="RecordCSharpRuleKeeperAnalysis"
           AfterTargets="CoreCompile"
           Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">
-    <WriteLinesToFile File="$(CSharpRuleKeeperResultsRoot)\$(MSBuildProjectName)-$(TargetFramework)-$(Configuration).completed"
+    <WriteLinesToFile File="$(CSharpRuleKeeperResultsRoot)\$(MSBuildProjectName)-$(TargetFramework)-$(Configuration)-$([MSBuild]::StableStringHash('$(MSBuildProjectFullPath)')).completed"
                       Lines="completed"
                       Overwrite="true" />
   </Target>

@@ -45,19 +45,29 @@ try
 
     "sealed class Example`r`n{`r`n    MissingType Read() => null;`r`n}" | Set-Content -LiteralPath (Join-Path $fixtureRoot "Program.cs") -Encoding UTF8
     $compileExitCode = Invoke-CheckerProcess @("-Solution", (Join-Path $fixtureRoot "Fixture.csproj"), "-AnalyzerPath", $analyzerPath, "-OutputPath", (Join-Path $fixtureRoot "compile-error.md"), "-JsonOutputPath", (Join-Path $fixtureRoot "compile-error.json"))
-    if ($compileExitCode -ne 2) { throw "컴파일 오류 종료 코드가 $compileExitCode 다." }
+    if ($compileExitCode -ne 2) { throw "Compile error exit code was $compileExitCode, expected 2." }
     $compileError = Get-Content -LiteralPath (Join-Path $fixtureRoot "compile-error.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($compileError.analysisCompleted -or @($compileError.executionErrors | Where-Object { $_ -match "CS0246" }).Count -eq 0) { throw "컴파일 오류 분류가 올바르지 않다." }
+    if ($compileError.analysisCompleted -or @($compileError.executionErrors | Where-Object { $_ -match "CS0246" }).Count -eq 0) { throw "Compile errors were not classified as an execution failure." }
 
     "sealed class Example{void Run(){}}" | Set-Content -LiteralPath (Join-Path $fixtureRoot "Program.cs") -Encoding UTF8
     $unformattedHash = (Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash
     $formatExitCode = Invoke-CheckerProcess @("-Solution", (Join-Path $fixtureRoot "Fixture.csproj"), "-AnalyzerPath", $analyzerPath, "-OutputPath", (Join-Path $fixtureRoot "format-error.md"), "-JsonOutputPath", (Join-Path $fixtureRoot "format-error.json"))
-    if ($formatExitCode -ne 2) { throw "서식 오류 종료 코드가 $formatExitCode 다." }
-    if ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash -ne $unformattedHash) { throw "기본 검사에서 소스가 변경됐다." }
+    if ($formatExitCode -ne 2) { throw "Format error exit code was $formatExitCode, expected 2." }
+    if ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash -ne $unformattedHash) { throw "The default check modified the source." }
     $fixExitCode = Invoke-CheckerProcess @("-Solution", (Join-Path $fixtureRoot "Fixture.csproj"), "-AnalyzerPath", $analyzerPath, "-OutputPath", (Join-Path $fixtureRoot "format-fix.md"), "-JsonOutputPath", (Join-Path $fixtureRoot "format-fix.json"), "-Fix")
-    if ($fixExitCode -ne 0) { throw "-Fix 검사에 실패했다: $fixExitCode" }
-    if ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash -eq $unformattedHash) { throw "-Fix가 whitespace를 적용하지 않았다." }
-    Write-Host "실행 실패·서식 범위 테스트가 통과했다."
+    if ($fixExitCode -ne 0) { throw "The -Fix check failed with exit code $fixExitCode." }
+    if ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash -eq $unformattedHash) { throw "-Fix did not apply whitespace changes." }
+
+    # Doctor judges the target's SDK requirement, not the SDK needed to develop this tool.
+    $doctorRoot = Join-Path $fixtureRoot "doctor"
+    New-Item -ItemType Directory -Path $doctorRoot | Out-Null
+    $doctorSatisfiedExitCode = Invoke-CheckerProcess @("-Doctor", "-Solution", $doctorRoot)
+    if ($doctorSatisfiedExitCode -ne 0) { throw "Doctor exit code was $doctorSatisfiedExitCode for a target without global.json, expected 0." }
+    '{ "sdk": { "version": "99.0.100", "rollForward": "disable" } }' | Set-Content -LiteralPath (Join-Path $doctorRoot "global.json") -Encoding UTF8
+    $doctorUnsatisfiedExitCode = Invoke-CheckerProcess @("-Doctor", "-Solution", $doctorRoot)
+    if ($doctorUnsatisfiedExitCode -ne 2) { throw "Doctor exit code was $doctorUnsatisfiedExitCode for an unsatisfiable target SDK, expected 2." }
+
+    Write-Host "CSharpRuleKeeper failure classification, format and doctor tests passed."
 }
 finally
 {

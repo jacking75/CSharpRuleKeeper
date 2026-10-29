@@ -1,0 +1,7 @@
+[*.cs]
+# Test methods embed whole C# sources as raw string literals,
+# so physical line counts overstate their complexity.
+personal_csharp_rules.method_lines_warning = 80
+personal_csharp_rules.method_lines_error = 150
+personal_csharp_rules.type_lines_warning = 600
+personal_csharp_rules.type_lines_error = 1000

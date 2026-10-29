@@ -1,10 +1,19 @@
-﻿param(
+param(
     [string]$Solution = "CSharpRuleKeeper.sln",
-    [switch]$Fix,
-    [string]$AgentReportPath
+    [switch]$Fix
 )
 
 $ErrorActionPreference = "Stop"
+$toolRoot = Split-Path -Parent $PSScriptRoot
+
+function Stop-OnFailure([Int32]$ExitCode, [string]$Step)
+{
+    if ($ExitCode -ne 0)
+    {
+        [Console]::Error.WriteLine("Quality gate failed at step: $Step (exit code $ExitCode)")
+        exit $ExitCode
+    }
+}
 
 if ($Fix)
 {
@@ -14,52 +23,31 @@ else
 {
     dotnet format $Solution --verify-no-changes --no-restore
 }
+Stop-OnFailure $LASTEXITCODE "dotnet format"
 
-if ($LASTEXITCODE -ne 0)
-{
-    Write-Error "서식 규칙 검사가 실패했다."
-    exit $LASTEXITCODE
-}
-
-$buildOutput = @(& dotnet build $Solution --no-restore --configuration Debug 2>&1 | ForEach-Object {
-    $_.ToString()
-})
-$buildExitCode = $LASTEXITCODE
-$buildOutput | ForEach-Object {
-    Write-Host $_
-}
-
-if ($AgentReportPath)
-{
-    $analysisStatus = if ($buildExitCode -eq 0) { "passed" } else { "failed" }
-    $buildOutput | & "$PSScriptRoot\New-CodingAgentChangeReport.ps1" -OutputPath $AgentReportPath -Target $Solution -BuildExitCode $buildExitCode -FormatStatus passed -AnalysisStatus $analysisStatus
-}
-
-if ($buildExitCode -ne 0)
-{
-    exit $buildExitCode
-}
+dotnet build $Solution --no-restore --configuration Debug
+Stop-OnFailure $LASTEXITCODE "dotnet build"
 
 dotnet test $Solution --no-build --configuration Debug
-$testExitCode = $LASTEXITCODE
-if ($testExitCode -ne 0)
+Stop-OnFailure $LASTEXITCODE "dotnet test"
+
+$scriptTests = @(
+    "Test-CSharpRuleKeeperIntegration.ps1",
+    "Test-CSharpRuleKeeperFailureAndFormat.ps1",
+    "Test-CSharpRuleKeeperReport.ps1",
+    "Test-CSharpRuleKeeperHook.ps1",
+    "Test-CSharpRuleKeeperDocs.ps1"
+)
+foreach ($scriptTest in $scriptTests)
 {
-    exit $testExitCode
+    & "$PSScriptRoot\$scriptTest"
+    Stop-OnFailure $LASTEXITCODE $scriptTest
 }
 
-& "$PSScriptRoot\Test-CSharpRuleKeeperIntegration.ps1"
-$integrationExitCode = $LASTEXITCODE
-if ($integrationExitCode -ne 0)
-{
-    exit $integrationExitCode
-}
+# Self check: the tool must pass its own rules. The integration test already built the Release analyzer.
+$analyzerPath = Join-Path $toolRoot "src\CSharpRuleKeeper.Analyzers\bin\Release\netstandard2.0\CSharpRuleKeeper.Analyzers.dll"
+$selfCheckPath = Join-Path $toolRoot "artifacts\self-check.md"
+& "$PSScriptRoot\Invoke-CSharpRuleKeeper.ps1" -Solution (Join-Path $toolRoot $Solution) -AnalyzerPath $analyzerPath -OutputPath $selfCheckPath
+Stop-OnFailure $LASTEXITCODE "self check (see $selfCheckPath)"
 
-& "$PSScriptRoot\Test-CSharpRuleKeeperFailureAndFormat.ps1"
-$failureAndFormatExitCode = $LASTEXITCODE
-if ($failureAndFormatExitCode -ne 0)
-{
-    exit $failureAndFormatExitCode
-}
-
-& "$PSScriptRoot\Test-CSharpRuleKeeperReport.ps1"
-exit $LASTEXITCODE
+exit 0

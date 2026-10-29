@@ -12,7 +12,7 @@ namespace CSharpRuleKeeper.Analyzers.Naming;
 public sealed class ExplicitPrivateAnalyzer : DiagnosticAnalyzer
 {
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-        ImmutableArray.Create(RuleDefinitions.ExplicitPrivate);
+        ImmutableArray.Create(RuleDefinitions.s_explicitPrivate);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -45,7 +45,7 @@ public sealed class ExplicitPrivateAnalyzer : DiagnosticAnalyzer
             };
 
             context.ReportDiagnostic(Diagnostic.Create(
-                RuleDefinitions.ExplicitPrivate,
+                RuleDefinitions.s_explicitPrivate,
                 privateModifier.GetLocation(),
                 member.Kind().ToString(),
                 name));

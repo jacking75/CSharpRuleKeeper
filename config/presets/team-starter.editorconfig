@@ -1,12 +1,12 @@
 root = true
 
 [*.{cs,csx}]
-# 계약 안전성과 명백한 오류부터 도입한다.
+# Adopt contract-safe and clearly wrong patterns first.
 dotnet_diagnostic.HBCS001.severity = error
 dotnet_diagnostic.HBCS004.severity = warning
 dotnet_diagnostic.HBCS014.severity = error
 
-# 팀 취향 합의 전에는 정보 제공 또는 비활성 상태로 시작한다.
+# Until the team agrees on taste rules, keep them informational or off.
 dotnet_diagnostic.HBCS003.severity = suggestion
 dotnet_diagnostic.HBCS008.severity = none
 dotnet_diagnostic.HBCS011.severity = none
@@ -20,5 +20,5 @@ personal_csharp_rules.file_lines_warning = 700
 personal_csharp_rules.file_lines_error = 1200
 personal_csharp_rules.public_field_allowed_attributes = System.Runtime.InteropServices.StructLayoutAttribute,System.Runtime.Serialization.DataMemberAttribute
 
-# Unity/직렬화 예외는 실제 대상의 가장 좁은 하위 .editorconfig에서 설정한다.
-# 이 예시는 Unity 전체 지원을 의미하지 않는다.
+# Set Unity and serialization exceptions in the narrowest sub-folder .editorconfig of the real target.
+# This example does not mean full Unity support.

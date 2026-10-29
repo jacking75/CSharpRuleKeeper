@@ -11,6 +11,8 @@ param(
     [string]$AnalyzerPath,
     [string]$BaselinePath,
     [switch]$CreateBaseline,
+    [ValidatePattern('^[A-Za-z][A-Za-z0-9_]*$')]
+    [string]$Configuration = "Debug",
     [ValidateRange(1, 10000)]
     [Int32]$MaxDiagnostics = 200,
     [ValidateRange(1, 86400)]
@@ -21,7 +23,7 @@ $ErrorActionPreference = "Stop"
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 $originalLocation = Get-Location
 $toolRoot = Split-Path -Parent $PSScriptRoot
-$toolVersion = "1.1.0"
+$toolVersion = (Get-Content -LiteralPath (Join-Path $PSScriptRoot "version.txt") -Raw).Trim()
 $runId = [Guid]::NewGuid().ToString("N")
 $startedAt = [DateTimeOffset]::UtcNow.ToString("o")
 $resultsRoot = $null
@@ -59,7 +61,7 @@ function Invoke-DotNet([string[]]$Arguments, [string]$WorkingDirectory)
     $process.StartInfo = $startInfo
     try
     {
-        if (-not $process.Start()) { throw "dotnet 프로세스를 시작하지 못했다." }
+        if (-not $process.Start()) { throw "Could not start the dotnet process." }
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
         $completed = $process.WaitForExit($TimeoutSeconds * 1000)
@@ -79,52 +81,187 @@ function Invoke-DotNet([string[]]$Arguments, [string]$WorkingDirectory)
     }
 }
 
+function ConvertTo-SdkVersion([string]$Text)
+{
+    $match = [regex]::Match($Text, '^(\d+)\.(\d+)\.(\d+)')
+    if (-not $match.Success) { return $null }
+    $patch = [Int32]$match.Groups[3].Value
+    return [PSCustomObject]@{
+        Major = [Int32]$match.Groups[1].Value
+        Minor = [Int32]$match.Groups[2].Value
+        Patch = $patch
+        Text = $Text
+    }
+}
+
+function Compare-SdkVersion($Left, $Right)
+{
+    foreach ($part in @("Major", "Minor", "Patch"))
+    {
+        if ($Left.$part -ne $Right.$part) { return [Math]::Sign($Left.$part - $Right.$part) }
+    }
+
+    return 0
+}
+
+function Test-SdkRequirement([string[]]$InstalledVersions, [string]$RequestedVersion, [string]$RollForward)
+{
+    $requested = ConvertTo-SdkVersion $RequestedVersion
+    if ($null -eq $requested) { return $true }
+    $installed = @($InstalledVersions | ForEach-Object { ConvertTo-SdkVersion $_ } | Where-Object { $null -ne $_ })
+    foreach ($candidate in $installed)
+    {
+        $isAtLeast = (Compare-SdkVersion $candidate $requested) -ge 0
+        $isSameMinor = $candidate.Major -eq $requested.Major -and $candidate.Minor -eq $requested.Minor
+        $isSameBand = $isSameMinor -and [Math]::Floor($candidate.Patch / 100) -eq [Math]::Floor($requested.Patch / 100)
+        $isSatisfied = switch -Regex ($RollForward)
+        {
+            '^disable$' { (Compare-SdkVersion $candidate $requested) -eq 0 }
+            '^(patch|latestPatch)$' { $isSameBand -and $isAtLeast }
+            '^(feature|latestFeature)$' { $isSameMinor -and $isAtLeast }
+            '^(minor|latestMinor)$' { $candidate.Major -eq $requested.Major -and $isAtLeast }
+            '^(major|latestMajor)$' { $isAtLeast }
+            default { $isSameBand -and $isAtLeast }
+        }
+        if ($isSatisfied) { return $true }
+    }
+
+    return $false
+}
+
+function Find-GlobalJson([string]$StartDirectory)
+{
+    $directory = $StartDirectory
+    while (-not [string]::IsNullOrWhiteSpace($directory))
+    {
+        $candidate = Join-Path $directory "global.json"
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+        $parent = Split-Path -Parent $directory
+        if ($parent -eq $directory) { break }
+        $directory = $parent
+    }
+
+    return $null
+}
+
 function Show-Doctor
 {
+    $exitCode = 0
     $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
     Write-Host "CSharpRuleKeeper doctor"
-    Write-Host "- 도구 버전: $toolVersion"
-    Write-Host "- 도구 루트: $toolRoot"
+    Write-Host "- Tool version: $toolVersion"
+    Write-Host "- Tool root: $toolRoot"
     Write-Host "- PowerShell: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
     if ($null -eq $dotnetCommand)
     {
-        Write-Host "- dotnet: 찾을 수 없음"
+        Write-Host "- dotnet: not found"
         return 2
     }
 
     Write-Host "- dotnet: $($dotnetCommand.Source)"
     $sdks = @(& dotnet --list-sdks 2>&1)
-    Write-Host "- 설치 SDK:"
+    Write-Host "- Installed SDKs:"
     $sdks | ForEach-Object { Write-Host "  $_" }
-    $hasRequiredSdk = @($sdks | Where-Object { $_ -match "^10\.0\.4\d{2}\s" }).Count -gt 0
-    Write-Host "- 개발 SDK 정책: 10.0.400 feature band, rollForward=latestFeature"
-    Write-Host "- 개발 SDK 상태: $(if ($hasRequiredSdk) { '사용 가능' } else { '요구 feature band 없음' })"
+    $installedVersions = @($sdks | ForEach-Object { ($_ -split "\s+")[0] })
 
     if (-not [string]::IsNullOrWhiteSpace($Solution))
     {
         $target = Resolve-FullPath $Solution $originalLocation.Path
-        Write-Host "- 대상: $target"
+        Write-Host "- Target: $target"
         $directory = if (Test-Path -LiteralPath $target -PathType Container) { $target } else { Split-Path -Parent $target }
-        $globalJson = $null
-        while (-not [string]::IsNullOrWhiteSpace($directory))
+        $globalJson = Find-GlobalJson $directory
+        if ($null -eq $globalJson)
         {
-            $candidate = Join-Path $directory "global.json"
-            if (Test-Path -LiteralPath $candidate)
-            {
-                $globalJson = $candidate
-                break
-            }
-
-            $parent = Split-Path -Parent $directory
-            if ($parent -eq $directory) { break }
-            $directory = $parent
+            Write-Host "- Target global.json: none (the latest installed SDK is used)"
         }
-
-        Write-Host "- 대상에 적용되는 global.json: $(if ($globalJson) { $globalJson } else { '없음(dotnet 기본 탐색 정책)' })"
+        else
+        {
+            $sdkSection = (Get-Content -LiteralPath $globalJson -Raw -Encoding UTF8 | ConvertFrom-Json).sdk
+            $requestedVersion = "$($sdkSection.version)"
+            $rollForward = if ($sdkSection.rollForward) { "$($sdkSection.rollForward)" } else { "latestPatch" }
+            Write-Host "- Target global.json: $globalJson (version=$(if ($requestedVersion) { $requestedVersion } else { 'any' }), rollForward=$rollForward)"
+            $isSatisfied = [string]::IsNullOrWhiteSpace($requestedVersion) -or (Test-SdkRequirement $installedVersions $requestedVersion $rollForward)
+            Write-Host "- Target SDK requirement: $(if ($isSatisfied) { 'satisfied' } else { 'NOT satisfied - install a matching SDK' })"
+            if (-not $isSatisfied) { $exitCode = 2 }
+        }
     }
 
-    Write-Host "Doctor는 restore, build 또는 파일 변경을 수행하지 않았다."
-    return $(if ($hasRequiredSdk) { 0 } else { 2 })
+    $bundledAnalyzer = Join-Path $toolRoot "analyzers\CSharpRuleKeeper.Analyzers.dll"
+    if (Test-Path -LiteralPath $bundledAnalyzer)
+    {
+        Write-Host "- Analyzer: bundled DLL found, no tool-side SDK needed"
+    }
+    else
+    {
+        $hasToolSdk = @($installedVersions | Where-Object { $_ -match "^10\.0\.4\d{2}$" }).Count -gt 0
+        Write-Host "- Analyzer: no bundled DLL; it is built from source and needs a 10.0.4xx SDK (rollForward=latestFeature)"
+        Write-Host "- Tool build SDK: $(if ($hasToolSdk) { 'available' } else { 'MISSING' })"
+        if (-not $hasToolSdk) { $exitCode = 2 }
+    }
+
+    Write-Host "Doctor did not restore, build or modify any file."
+    return $exitCode
+}
+
+function Get-SolutionProjects([string]$SolutionPath)
+{
+    $listing = Invoke-DotNet @("sln", $SolutionPath, "list") (Split-Path -Parent $SolutionPath)
+    if ($listing.ExitCode -ne 0) { return $null }
+    $solutionDirectory = Split-Path -Parent $SolutionPath
+    return @($listing.Output |
+        Where-Object { $_ -match '\.(cs|vb|fs)proj$' } |
+        ForEach-Object { Resolve-FullPath $_.Trim() $solutionDirectory })
+}
+
+function Get-CustomAfterTargets([string]$ProjectPath)
+{
+    $query = Invoke-DotNet @("msbuild", $ProjectPath, "-getProperty:CustomAfterMicrosoftCommonTargets", "-nologo") (Split-Path -Parent $ProjectPath)
+    if ($query.ExitCode -ne 0)
+    {
+        Write-Host "WARNING: could not read CustomAfterMicrosoftCommonTargets of $ProjectPath; its own build extension may be skipped."
+        return @()
+    }
+
+    $value = $query.Output | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 1
+    if ([string]::IsNullOrWhiteSpace($value)) { return @() }
+    return @($value -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+function New-CombinedTargets([string]$TargetPath, [string]$RuleKeeperTargets, [string]$DestinationPath)
+{
+    $isSolution = [IO.Path]::GetExtension($TargetPath) -in @(".sln", ".slnx")
+    $isDirectory = Test-Path -LiteralPath $TargetPath -PathType Container
+    $projects = if ($isSolution) { Get-SolutionProjects $TargetPath } elseif ($isDirectory) { @() } else { @($TargetPath) }
+    if ($null -eq $projects)
+    {
+        Write-Host "WARNING: could not list the projects of $TargetPath; per-project build extensions are not preserved."
+        $projects = @()
+    }
+
+    $imports = [Collections.Generic.List[string]]::new()
+    $imports.Add("<Project>")
+    if ($isDirectory)
+    {
+        foreach ($existingTarget in (Get-CustomAfterTargets $TargetPath))
+        {
+            $escapedTarget = [Security.SecurityElement]::Escape($existingTarget)
+            $imports.Add("  <Import Project=`"$escapedTarget`" Condition=`"Exists('$escapedTarget')`" />")
+        }
+    }
+
+    foreach ($project in $projects)
+    {
+        $escapedProject = [Security.SecurityElement]::Escape($project)
+        foreach ($existingTarget in (Get-CustomAfterTargets $project))
+        {
+            $escapedTarget = [Security.SecurityElement]::Escape($existingTarget)
+            $imports.Add("  <Import Project=`"$escapedTarget`" Condition=`"'`$(MSBuildProjectFullPath)' == '$escapedProject' And Exists('$escapedTarget')`" />")
+        }
+    }
+
+    $imports.Add("  <Import Project=`"$([Security.SecurityElement]::Escape($RuleKeeperTargets))`" />")
+    $imports.Add("</Project>")
+    $imports | Set-Content -LiteralPath $DestinationPath -Encoding UTF8
 }
 
 try
@@ -142,13 +279,13 @@ try
 
     if ([string]::IsNullOrWhiteSpace($Solution))
     {
-        throw "-Solution은 검사 실행 시 필수다. 환경 진단은 -Doctor, 옵션 설명은 -ExplainEditorConfig를 사용한다."
+        throw "-Solution is required to run a check. Use -Doctor for environment diagnostics or -ExplainEditorConfig for option help."
     }
 
     $targetPath = Resolve-FullPath $Solution $originalLocation.Path
     if (-not (Test-Path -LiteralPath $targetPath))
     {
-        throw "검사할 솔루션 또는 프로젝트를 찾을 수 없다: $targetPath"
+        throw "Solution or project to check was not found: $targetPath"
     }
 
     $targetDirectory = if (Test-Path -LiteralPath $targetPath -PathType Container) { $targetPath } else { Split-Path -Parent $targetPath }
@@ -171,7 +308,7 @@ try
     {
         if ($candidatePath -eq $targetPath -or $protectedExtensions -contains [IO.Path]::GetExtension($candidatePath))
         {
-            throw "보고서 출력은 보호 대상 소스/프로젝트/설정 경로를 사용할 수 없다: $candidatePath"
+            throw "The report output must not use a protected source, project or configuration path: $candidatePath"
         }
     }
 
@@ -197,7 +334,7 @@ try
             {
                 $executionErrors.Add("Analyzer build failed with exit code $($buildAnalyzer.ExitCode).")
                 $buildExitCode = $buildAnalyzer.ExitCode
-                throw "Analyzer 빌드에 실패했다."
+                throw "The analyzer build failed."
             }
         }
     }
@@ -208,7 +345,7 @@ try
 
     if (-not (Test-Path -LiteralPath $AnalyzerPath))
     {
-        throw "Analyzer DLL을 찾을 수 없다: $AnalyzerPath"
+        throw "Analyzer DLL not found: $AnalyzerPath"
     }
     $analyzerWatch.Stop()
 
@@ -217,32 +354,15 @@ try
     if (-not $Fix) { $formatArguments += "--verify-no-changes" }
     $format = Invoke-DotNet $formatArguments $targetDirectory
     $format.Output | ForEach-Object { Write-Host $_ }
-    if ($format.TimedOut) { $executionErrors.Add("서식 검사가 제한 시간 $TimeoutSeconds 초를 초과해 중단됐다.") }
+    if ($format.TimedOut) { $executionErrors.Add("The format check exceeded the $TimeoutSeconds second limit and was stopped.") }
     $formatStatus = if ($format.ExitCode -eq 0) { "passed" } else { "failed" }
     $formatWatch.Stop()
 
     $buildWatch = [Diagnostics.Stopwatch]::StartNew()
-    $existingTargets = @(& dotnet msbuild $targetPath -getProperty:CustomAfterMicrosoftCommonTargets -nologo 2>$null) |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-        Select-Object -Last 1
-    $targetsPath = Join-Path $PSScriptRoot "CSharpRuleKeeper.targets"
     $combinedTargets = Join-Path $resultsRoot "CSharpRuleKeeper.combined.targets"
-    $imports = [Collections.Generic.List[string]]::new()
-    $imports.Add("<Project>")
-    if (-not [string]::IsNullOrWhiteSpace($existingTargets))
-    {
-        foreach ($existingTarget in $existingTargets -split ";")
-        {
-            $escapedTarget = [Security.SecurityElement]::Escape($existingTarget.Trim())
-            if ($escapedTarget) { $imports.Add("  <Import Project=`"$escapedTarget`" Condition=`"Exists('$escapedTarget')`" />") }
-        }
-    }
-    $escapedRuleKeeperTargets = [Security.SecurityElement]::Escape($targetsPath)
-    $imports.Add("  <Import Project=`"$escapedRuleKeeperTargets`" />")
-    $imports.Add("</Project>")
-    $imports | Set-Content -LiteralPath $combinedTargets -Encoding UTF8
+    New-CombinedTargets $targetPath (Join-Path $PSScriptRoot "CSharpRuleKeeper.targets") $combinedTargets
     $buildArguments = @(
-        "build", $targetPath, "--configuration", "Debug", "--no-incremental",
+        "build", $targetPath, "--configuration", $Configuration, "--no-incremental",
         "/p:CustomAfterMicrosoftCommonTargets=$combinedTargets",
         "/p:CSharpRuleKeeperAnalyzerPath=$AnalyzerPath",
         "/p:CSharpRuleKeeperResultsRoot=$resultsRoot",
@@ -259,9 +379,8 @@ try
     $buildOutput = $build.Output
     $buildExitCode = $build.ExitCode
     $buildOutput | ForEach-Object { Write-Host $_ }
-    if ($build.TimedOut) { $executionErrors.Add("대상 빌드가 제한 시간 $TimeoutSeconds 초를 초과해 자식 프로세스와 함께 중단됐다.") }
+    if ($build.TimedOut) { $executionErrors.Add("The target build exceeded the $TimeoutSeconds second limit and was stopped together with its child processes.") }
     $sarifPaths = @(Get-ChildItem -LiteralPath $resultsRoot -Filter "*.sarif" -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-    $completionMarkers = @(Get-ChildItem -LiteralPath $resultsRoot -Filter "*.completed" -File -ErrorAction SilentlyContinue)
     if ($sarifPaths.Count -gt 0)
     {
         $analysisStatus = "passed"
@@ -284,12 +403,12 @@ try
     elseif ($buildExitCode -ne 0)
     {
         $analysisStatus = "failed"
-        $executionErrors.Add("대상 빌드 또는 분석이 종료 코드 $buildExitCode 로 실패했다.")
+        $executionErrors.Add("The target build or analysis failed with exit code $buildExitCode.")
     }
     else
     {
         $analysisStatus = "unknown"
-        $executionErrors.Add("분석 완료 marker 또는 SARIF를 확인하지 못했다.")
+        $executionErrors.Add("Could not confirm an analysis completion marker or SARIF output.")
     }
     $buildWatch.Stop()
 
@@ -340,7 +459,7 @@ catch
         }
         catch
         {
-            [Console]::Error.WriteLine("실패 보고서를 저장하지 못했다: $($_.Exception.Message)")
+            [Console]::Error.WriteLine("Failed to save the failure report: $($_.Exception.Message)")
         }
     }
     [Console]::Error.WriteLine($failureMessage)

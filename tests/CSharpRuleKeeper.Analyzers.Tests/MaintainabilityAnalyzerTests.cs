@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
@@ -10,7 +11,7 @@ namespace CSharpRuleKeeper.Analyzers.Tests;
 public sealed class MaintainabilityAnalyzerTests
 {
     [Fact]
-    public async Task MagicNumber_allows_defaults_and_intentional_contexts()
+    public async Task MagicNumber_allows_defaults_and_intentional_contextsAsync()
     {
         const string source = """
             using System;
@@ -46,7 +47,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task MagicNumber_reports_three_unexplained_values()
+    public async Task MagicNumber_reports_three_unexplained_valuesAsync()
     {
         const string source = """
             using System;
@@ -69,7 +70,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task MagicNumber_honors_options_and_ignores_test_projects()
+    public async Task MagicNumber_honors_options_and_ignores_test_projectsAsync()
     {
         const string source = """
             using System;
@@ -98,7 +99,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task MagicNumber_can_analyze_test_projects_when_enabled()
+    public async Task MagicNumber_can_analyze_test_projects_when_enabledAsync()
     {
         const string source = """
             sealed class Example
@@ -121,21 +122,21 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task MethodLength_enforces_all_default_boundaries()
+    public async Task MethodLength_enforces_all_default_boundariesAsync()
     {
-        var atWarningLimit = await GetMethodDiagnosticsAsync(30);
-        var aboveWarningLimit = await GetMethodDiagnosticsAsync(31);
-        var atErrorLimit = await GetMethodDiagnosticsAsync(100);
-        var aboveErrorLimit = await GetMethodDiagnosticsAsync(101);
+        var atWarningLimitDiagnostics = await GetMethodDiagnosticsAsync(30);
+        var aboveWarningLimitDiagnostics = await GetMethodDiagnosticsAsync(31);
+        var atErrorLimitDiagnostics = await GetMethodDiagnosticsAsync(100);
+        var aboveErrorLimitDiagnostics = await GetMethodDiagnosticsAsync(101);
 
-        Assert.Empty(atWarningLimit);
-        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(aboveWarningLimit).Severity);
-        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(atErrorLimit).Severity);
-        Assert.Equal(DiagnosticSeverity.Error, Assert.Single(aboveErrorLimit).Severity);
+        Assert.Empty(atWarningLimitDiagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(aboveWarningLimitDiagnostics).Severity);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(atErrorLimitDiagnostics).Severity);
+        Assert.Equal(DiagnosticSeverity.Error, Assert.Single(aboveErrorLimitDiagnostics).Severity);
     }
 
     [Fact]
-    public async Task MethodLength_honors_configured_limits_and_member_kinds()
+    public async Task MethodLength_honors_configured_limits_and_member_kindsAsync()
     {
         const string source = """
             sealed class Example
@@ -183,7 +184,7 @@ public sealed class MaintainabilityAnalyzerTests
     [InlineData("200", "100")]
     [InlineData("2147483648", "300")]
     [InlineData("invalid", "300")]
-    public async Task MethodLength_restores_both_defaults_for_invalid_limit_pairs(
+    public async Task MethodLength_restores_both_defaults_for_invalid_limit_pairsAsync(
         string warning,
         string error)
     {
@@ -204,21 +205,21 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task TypeLength_enforces_all_default_boundaries()
+    public async Task TypeLength_enforces_all_default_boundariesAsync()
     {
-        var atWarningLimit = await GetTypeDiagnosticsAsync(300);
-        var aboveWarningLimit = await GetTypeDiagnosticsAsync(301);
-        var atErrorLimit = await GetTypeDiagnosticsAsync(500);
-        var aboveErrorLimit = await GetTypeDiagnosticsAsync(501);
+        var atWarningLimitDiagnostics = await GetTypeDiagnosticsAsync(300);
+        var aboveWarningLimitDiagnostics = await GetTypeDiagnosticsAsync(301);
+        var atErrorLimitDiagnostics = await GetTypeDiagnosticsAsync(500);
+        var aboveErrorLimitDiagnostics = await GetTypeDiagnosticsAsync(501);
 
-        Assert.Empty(atWarningLimit);
-        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(aboveWarningLimit).Severity);
-        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(atErrorLimit).Severity);
-        Assert.Equal(DiagnosticSeverity.Error, Assert.Single(aboveErrorLimit).Severity);
+        Assert.Empty(atWarningLimitDiagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(aboveWarningLimitDiagnostics).Severity);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(atErrorLimitDiagnostics).Severity);
+        Assert.Equal(DiagnosticSeverity.Error, Assert.Single(aboveErrorLimitDiagnostics).Severity);
     }
 
     [Fact]
-    public async Task TypeLength_honors_excluded_suffixes()
+    public async Task TypeLength_honors_excluded_suffixesAsync()
     {
         string source = BuildType(301, "PayloadDto");
         Dictionary<string, string> options = new()
@@ -235,7 +236,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task Type_and_file_lengths_restore_both_defaults_for_reversed_pairs()
+    public async Task Type_and_file_lengths_restore_both_defaults_for_reversed_pairsAsync()
     {
         Dictionary<string, string> options = new()
         {
@@ -259,7 +260,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task TypeLength_covers_struct_interface_and_record_declarations()
+    public async Task TypeLength_covers_struct_interface_and_record_declarationsAsync()
     {
         const string source = """
             struct Value
@@ -290,7 +291,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task TypeLength_ignores_entity_framework_migrations()
+    public async Task TypeLength_ignores_entity_framework_migrationsAsync()
     {
         const string source = """
             namespace Microsoft.EntityFrameworkCore.Migrations
@@ -302,9 +303,9 @@ public sealed class MaintainabilityAnalyzerTests
 
             sealed class AddUsers : Microsoft.EntityFrameworkCore.Migrations.Migration
             {
-
-
-
+                // Padding keeps the type above the configured line limits.
+                // Padding keeps the type above the configured line limits.
+                // Padding keeps the type above the configured line limits.
             }
             """;
         Dictionary<string, string> options = new()
@@ -322,21 +323,21 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task FileLength_enforces_all_default_boundaries()
+    public async Task FileLength_enforces_all_default_boundariesAsync()
     {
-        var atWarningLimit = await GetFileDiagnosticsAsync(500);
-        var aboveWarningLimit = await GetFileDiagnosticsAsync(501);
-        var atErrorLimit = await GetFileDiagnosticsAsync(1000);
-        var aboveErrorLimit = await GetFileDiagnosticsAsync(1001);
+        var atWarningLimitDiagnostics = await GetFileDiagnosticsAsync(500);
+        var aboveWarningLimitDiagnostics = await GetFileDiagnosticsAsync(501);
+        var atErrorLimitDiagnostics = await GetFileDiagnosticsAsync(1000);
+        var aboveErrorLimitDiagnostics = await GetFileDiagnosticsAsync(1001);
 
-        Assert.Empty(atWarningLimit);
-        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(aboveWarningLimit).Severity);
-        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(atErrorLimit).Severity);
-        Assert.Equal(DiagnosticSeverity.Error, Assert.Single(aboveErrorLimit).Severity);
+        Assert.Empty(atWarningLimitDiagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(aboveWarningLimitDiagnostics).Severity);
+        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(atErrorLimitDiagnostics).Severity);
+        Assert.Equal(DiagnosticSeverity.Error, Assert.Single(aboveErrorLimitDiagnostics).Severity);
     }
 
     [Fact]
-    public async Task FileLength_honors_configured_limits_and_counts_comments_and_blank_lines()
+    public async Task FileLength_honors_configured_limits_and_counts_comments_and_blank_linesAsync()
     {
         Dictionary<string, string> options = new()
         {
@@ -357,7 +358,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     [Fact]
-    public async Task Generated_code_is_ignored_by_maintainability_analyzers()
+    public async Task Generated_code_is_ignored_by_maintainability_analyzersAsync()
     {
         const string source = """
             sealed class Example
@@ -397,7 +398,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     static Task<System.Collections.Immutable.ImmutableArray<Diagnostic>> GetMethodDiagnosticsAsync(
-        int physicalLineCount)
+        Int32 physicalLineCount)
     {
         return AnalyzerTestHarness.GetDiagnosticsAsync(
             new MethodLengthAnalyzer(),
@@ -405,7 +406,7 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     static Task<System.Collections.Immutable.ImmutableArray<Diagnostic>> GetTypeDiagnosticsAsync(
-        int physicalLineCount)
+        Int32 physicalLineCount)
     {
         return AnalyzerTestHarness.GetDiagnosticsAsync(
             new TypeLengthAnalyzer(),
@@ -413,21 +414,21 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     static Task<System.Collections.Immutable.ImmutableArray<Diagnostic>> GetFileDiagnosticsAsync(
-        int physicalLineCount)
+        Int32 physicalLineCount)
     {
         return AnalyzerTestHarness.GetDiagnosticsAsync(
             new FileLengthAnalyzer(),
             BuildFile(physicalLineCount));
     }
 
-    static string BuildMethod(int physicalLineCount)
+    static string BuildMethod(Int32 physicalLineCount)
     {
         StringBuilder source = new();
         source.AppendLine("sealed class Example");
         source.AppendLine("{");
         source.AppendLine("    void Run()");
         source.AppendLine("    {");
-        for (int index = 0; index < physicalLineCount - 3; index++)
+        for (Int32 index = 0; index < physicalLineCount - 3; index++)
         {
             source.AppendLine("        _ = 0;");
         }
@@ -437,12 +438,12 @@ public sealed class MaintainabilityAnalyzerTests
         return source.ToString();
     }
 
-    static string BuildType(int physicalLineCount, string typeName)
+    static string BuildType(Int32 physicalLineCount, string typeName)
     {
         StringBuilder source = new();
         source.Append("sealed class ").AppendLine(typeName);
         source.AppendLine("{");
-        for (int index = 0; index < physicalLineCount - 3; index++)
+        for (Int32 index = 0; index < physicalLineCount - 3; index++)
         {
             source.AppendLine();
         }
@@ -451,10 +452,10 @@ public sealed class MaintainabilityAnalyzerTests
         return source.ToString();
     }
 
-    static string BuildFile(int physicalLineCount)
+    static string BuildFile(Int32 physicalLineCount)
     {
         StringBuilder source = new();
-        for (int index = 0; index < physicalLineCount; index++)
+        for (Int32 index = 0; index < physicalLineCount; index++)
         {
             if (index % 2 == 0)
             {

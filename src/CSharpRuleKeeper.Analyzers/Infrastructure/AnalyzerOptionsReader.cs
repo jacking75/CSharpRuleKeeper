@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
@@ -11,38 +12,38 @@ static class AnalyzerOptionsReader
 {
     const string Prefix = "personal_csharp_rules.";
 
-    public static bool GetBoolean(
+    public static bool IsEnabled(
         AnalyzerOptions options,
         SyntaxTree tree,
         string name,
-        bool defaultValue)
+        bool isEnabledByDefault)
     {
         string? value = GetValue(options, tree, name);
-        return bool.TryParse(value, out bool result) ? result : defaultValue;
+        return bool.TryParse(value, out bool result) ? result : isEnabledByDefault;
     }
 
-    public static int GetInt(
+    public static Int32 GetInt(
         AnalyzerOptions options,
         SyntaxTree tree,
         string name,
-        int defaultValue)
+        Int32 defaultValue)
     {
         string? value = GetValue(options, tree, name);
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result)
+        return Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out Int32 result)
             ? result
             : defaultValue;
     }
 
-    public static (int Warning, int Error) GetLimits(
+    public static (Int32 Warning, Int32 Error) GetLimits(
         AnalyzerOptions options,
         SyntaxTree tree,
         string warningName,
         string errorName,
-        int defaultWarning,
-        int defaultError)
+        Int32 defaultWarning,
+        Int32 defaultError)
     {
-        int warning = GetInt(options, tree, warningName, defaultWarning);
-        int error = GetInt(options, tree, errorName, defaultError);
+        Int32 warning = GetInt(options, tree, warningName, defaultWarning);
+        Int32 error = GetInt(options, tree, errorName, defaultError);
 
         return warning > 0 && error > warning
             ? (warning, error)
@@ -60,17 +61,9 @@ static class AnalyzerOptionsReader
             ? defaultValues ?? Array.Empty<string>()
             : value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
 
-        ImmutableHashSet<string>.Builder builder = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
-        foreach (string item in values)
-        {
-            string trimmedItem = item.Trim();
-            if (trimmedItem.Length > 0)
-            {
-                builder.Add(trimmedItem);
-            }
-        }
-
-        return builder.ToImmutable();
+        return ImmutableHashSet.CreateRange(
+            StringComparer.Ordinal,
+            values.Select(item => item.Trim()).Where(item => item.Length > 0));
     }
 
     static string? GetValue(AnalyzerOptions options, SyntaxTree tree, string name)

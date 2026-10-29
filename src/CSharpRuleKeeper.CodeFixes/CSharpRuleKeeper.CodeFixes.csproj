@@ -4,7 +4,7 @@
     <AssemblyName>CSharpRuleKeeper.CodeFixes</AssemblyName>
     <RootNamespace>CSharpRuleKeeper.CodeFixes</RootNamespace>
     <IncludeBuildOutput>false</IncludeBuildOutput>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageId>CSharpRuleKeeper</PackageId>
     <PackageType>Analyzer</PackageType>
     <DevelopmentDependency>true</DevelopmentDependency>
@@ -12,7 +12,6 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <Description>Personal C# coding rules implemented as Roslyn analyzers and safe code fixes.</Description>
-    <Version>1.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

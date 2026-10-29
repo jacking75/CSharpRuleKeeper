@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Immutable;
 using CSharpRuleKeeper.Analyzers.Infrastructure;
 using Microsoft.CodeAnalysis;
@@ -10,13 +11,13 @@ namespace CSharpRuleKeeper.Analyzers.Maintainability;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class MethodLengthAnalyzer : DiagnosticAnalyzer
 {
-    const int DefaultWarningLimit = 30;
-    const int DefaultErrorLimit = 100;
+    const Int32 DefaultWarningLimit = 30;
+    const Int32 DefaultErrorLimit = 100;
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(
-            RuleDefinitions.MethodLengthWarning,
-            RuleDefinitions.MethodLengthError);
+            RuleDefinitions.s_methodLengthWarning,
+            RuleDefinitions.s_methodLengthError);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -40,8 +41,8 @@ public sealed class MethodLengthAnalyzer : DiagnosticAnalyzer
     static void AnalyzeDeclaration(SyntaxNodeAnalysisContext context)
     {
         SyntaxNode declaration = context.Node;
-        int lineCount = AnalysisUtilities.CountPhysicalLines(declaration);
-        (int warningLimit, int errorLimit) = AnalyzerOptionsReader.GetLimits(
+        Int32 lineCount = AnalysisUtilities.CountPhysicalLines(declaration);
+        (Int32 Warning, Int32 Error) limits = AnalyzerOptionsReader.GetLimits(
             context.Options,
             declaration.SyntaxTree,
             "method_lines_warning",
@@ -49,32 +50,32 @@ public sealed class MethodLengthAnalyzer : DiagnosticAnalyzer
             DefaultWarningLimit,
             DefaultErrorLimit);
 
-        DiagnosticDescriptor? descriptor = lineCount > errorLimit
-            ? RuleDefinitions.MethodLengthError
-            : lineCount > warningLimit
-                ? RuleDefinitions.MethodLengthWarning
-                : null;
+        DiagnosticDescriptor? descriptor = AnalysisUtilities.SelectLengthDescriptor(
+            lineCount,
+            limits,
+            RuleDefinitions.s_methodLengthWarning,
+            RuleDefinitions.s_methodLengthError);
         if (descriptor is null)
         {
             return;
         }
 
-        int exceededLimit = descriptor.DefaultSeverity == DiagnosticSeverity.Error
-            ? errorLimit
-            : warningLimit;
-        Location location = declaration switch
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            GetReportLocation(declaration),
+            AnalysisUtilities.GetDeclarationName(declaration),
+            lineCount,
+            AnalysisUtilities.GetExceededLimit(descriptor, limits)));
+    }
+
+    static Location GetReportLocation(SyntaxNode declaration)
+    {
+        return declaration switch
         {
             BaseMethodDeclarationSyntax method => AnalysisUtilities.GetIdentifierLocation(method),
             LocalFunctionStatementSyntax localFunction => localFunction.Identifier.GetLocation(),
             AccessorDeclarationSyntax accessor => accessor.Keyword.GetLocation(),
             _ => declaration.GetLocation(),
         };
-
-        context.ReportDiagnostic(Diagnostic.Create(
-            descriptor,
-            location,
-            AnalysisUtilities.GetDeclarationName(declaration),
-            lineCount,
-            exceededLimit));
     }
 }

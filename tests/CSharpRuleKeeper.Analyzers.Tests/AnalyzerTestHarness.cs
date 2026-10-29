@@ -60,7 +60,7 @@ static class AnalyzerTestHarness
         IReadOnlyDictionary<string, string> sources,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? fileOptions = null,
         LanguageVersion languageVersion = LanguageVersion.Preview,
-        bool allowCompilerErrors = false,
+        bool shouldAllowCompilerErrors = false,
         string assemblyName = "Production")
     {
         SyntaxTree[] trees = sources.Select(pair => CSharpSyntaxTree.ParseText(
@@ -74,7 +74,7 @@ static class AnalyzerTestHarness
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 nullableContextOptions: NullableContextOptions.Enable));
-        if (!allowCompilerErrors)
+        if (!shouldAllowCompilerErrors)
         {
             AssertNoCompilerErrors(compilation);
         }
@@ -134,7 +134,7 @@ static class AnalyzerTestHarness
         CodeFixContext context = new(
             document,
             diagnostic,
-            (action, _) => actions.Add(action),
+            (action, fixDiagnostics) => actions.Add(action),
             CancellationToken.None);
         await provider.RegisterCodeFixesAsync(context);
 
