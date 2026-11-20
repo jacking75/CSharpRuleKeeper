@@ -9,8 +9,13 @@ param(
     [string]$Target,
     [ValidateSet("passed", "failed", "notRun", "unknown")]
     [string]$FormatStatus = "unknown",
+    [ValidateSet("none", "differences", "toolError", "timeout")]
+    [string]$FormatFailureKind = "none",
+    [object[]]$FormatFiles = @(),
     [ValidateSet("passed", "failed", "notRun", "unknown")]
     [string]$AnalysisStatus = "unknown",
+    [object]$AnalysisCoverage,
+    [object[]]$BuildErrors = @(),
     [Int32]$BuildExitCode = -1,
     [string]$RunId = ([Guid]::NewGuid().ToString("N")),
     [string]$ToolVersion,
@@ -21,9 +26,14 @@ param(
     [ValidateRange(1, 10000)]
     [Int32]$MaxDiagnostics = 200,
     [string]$BaselinePath,
-    [switch]$CreateBaseline
+    [switch]$CreateBaseline,
+    [ValidateSet("error", "warning", "info")]
+    [string]$FailOn = "warning"
 )
 
+# Writes the Markdown report and the JSON result, and returns the result object.
+# The verdict is decided here and the checker's exit code is the result's exitCode:
+#   2 the check could not run or complete, 1 violations to fix, 0 passed.
 begin
 {
     $pipelineLines = [Collections.Generic.List[string]]::new()
@@ -39,6 +49,7 @@ end
     $ErrorActionPreference = "Stop"
     $reportWatch = [Diagnostics.Stopwatch]::StartNew()
     if ([string]::IsNullOrWhiteSpace($ToolVersion)) { $ToolVersion = (Get-Content -LiteralPath (Join-Path $PSScriptRoot "version.txt") -Raw).Trim() }
+    $configurationRuleId = "HBCS900"
     $ruleGuidance = @{
         HBCS001 = "Review external API, serialization and interop contracts, and encapsulate only when it is safe."
         HBCS002 = "Confirm the name is not an external contract, then use a state prefix. Try-prefixed methods with an out parameter are exempt."
@@ -55,10 +66,24 @@ end
         HBCS013 = "Check for an external contract first, then apply the required naming pattern."
         HBCS014 = "Use the field prefix that matches the storage kind and rename every reference together."
         HBCS015 = "Split the file by responsibility while preserving the API and behavior."
+        HBCS900 = "Fix the option value in .editorconfig, not the source file it points to (that file only shows where the option applies). The default values are used until then."
     }
-    $severityOrder = @{ error = 0; warning = 1; info = 2; hidden = 3 }
+    $severityRank = @{ error = 0; warning = 1; info = 2; hidden = 3 }
+    $failOnRank = $severityRank[$FailOn]
     $diagnostics = [Collections.Generic.List[object]]::new()
     $targetRoot = if ($Target -and [IO.Path]::HasExtension($Target)) { Split-Path -Parent $Target } else { $Target }
+
+    function ConvertTo-Severity([string]$Level)
+    {
+        switch ($Level)
+        {
+            "error" { return "error" }
+            "warning" { return "warning" }
+            "note" { return "info" }
+            "info" { return "info" }
+            default { return "hidden" }
+        }
+    }
 
     function Add-Diagnostic($RuleId, $Severity, $Project, $Framework, $Path, $Line, $Column, $Message)
     {
@@ -70,7 +95,7 @@ end
             $pathUri = [Uri]([IO.Path]::GetFullPath($Path))
             $Path = [Uri]::UnescapeDataString($rootUri.MakeRelativeUri($pathUri).ToString()).Replace('/', '\')
         }
-        $diagnostics.Add([PSCustomObject]@{
+        $diagnostics.Add([PSCustomObject][ordered]@{
             ruleId = $RuleId
             severity = $Severity
             project = $Project
@@ -82,6 +107,8 @@ end
             helpUri = "https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/RULES.md#$($RuleId.ToLowerInvariant())"
             fixCaution = $ruleGuidance[$RuleId]
             requiresContractReview = $RuleId -in @("HBCS001", "HBCS002", "HBCS003", "HBCS004", "HBCS013", "HBCS014")
+            isNew = $true
+            affectsVerdict = $false
         })
     }
 
@@ -95,14 +122,18 @@ end
         {
             foreach ($result in @($run.results))
             {
+                # Diagnostics suppressed in source (#pragma, SuppressMessage) are logged with a suppression.
+                if (@($result.suppressions | Where-Object { $null -ne $_ }).Count -gt 0) { continue }
                 $location = @($result.locations)[0].physicalLocation
                 $region = $location.region
-                $path = $location.artifactLocation.uri
                 $project = $result.properties.project
                 $framework = $result.properties.targetFramework
                 if (-not $project -and $sarifMatch.Success) { $project = $sarifMatch.Groups["project"].Value }
                 if (-not $framework -and $sarifMatch.Success) { $framework = $sarifMatch.Groups["framework"].Value }
-                Add-Diagnostic $result.ruleId $result.level $project $framework $path $region.startLine $region.startColumn $result.message.text
+                # Under the standalone runner error-severity findings are logged as warnings that carry their policy severity.
+                $policySeverity = $result.properties.customProperties.policySeverity
+                $severity = if ($policySeverity) { ConvertTo-Severity $policySeverity } else { ConvertTo-Severity $result.level }
+                Add-Diagnostic $result.ruleId $severity $project $framework $location.artifactLocation.uri $region.startLine $region.startColumn $result.message.text
             }
         }
     }
@@ -111,7 +142,7 @@ end
     # otherwise every diagnostic would be counted twice.
     if ($diagnostics.Count -eq 0)
     {
-        $pattern = [regex]"^(?<path>.+?)\((?<line>\d+),(?<column>\d+)\):\s*(?<severity>error|warning|info)\s+(?<id>HBCS\d{3}):\s*(?<message>.*?)(?:\s+\[.*\])?$"
+        $pattern = [regex]"^(?<path>.+?)\((?<line>\d+),(?<column>\d+)\):\s*(?<severity>error|warning|info)\s+(?<id>HBCS\d{3}):\s*(?<message>.*?)(?:\s+\(https?://[^)]*\))?(?:\s+\[.*\])?$"
         foreach ($line in $pipelineLines.ToArray())
         {
             $match = $pattern.Match($line)
@@ -136,50 +167,90 @@ end
         $frameworks = @(@("$($kept.targetFramework)" -split ";") + @("$($diagnostic.targetFramework)" -split ";") | Where-Object { $_ } | Select-Object -Unique)
         if ($frameworks.Count -gt 0) { $kept.targetFramework = $frameworks -join ";" }
     }
-    $normalized = @($uniqueDiagnostics.Values | Sort-Object @{ Expression = { $severityOrder[$_.severity] } }, project, targetFramework, path, line, column, ruleId, message)
+    $normalized = @($uniqueDiagnostics.Values | Sort-Object path, line, column, ruleId, message)
+
+    function Get-Fingerprint($Diagnostic)
+    {
+        $bytes = [Text.Encoding]::UTF8.GetBytes("$($Diagnostic.ruleId)|$($Diagnostic.path)|$($Diagnostic.message)")
+        return [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($bytes)).Replace("-", "").ToLowerInvariant()
+    }
+
+    # Baseline entries are a multiset: a fingerprint has no line, so two identical findings in one file share it
+    # and only the occurrences beyond the stored count are new. Within one fingerprint the earliest lines are existing.
     $baselineSummary = [ordered]@{ new = $normalized.Count; existing = 0; resolved = 0; state = "notUsed" }
-    $fingerprints = @($normalized | ForEach-Object {
-        $value = "$($_.ruleId)|$($_.path)|$($_.message)"
-        $bytes = [Text.Encoding]::UTF8.GetBytes($value)
-        $hash = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
-        [BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()
-    })
+    $codeDiagnostics = @($normalized | Where-Object { $_.ruleId -ne $configurationRuleId })
+    $currentCounts = [ordered]@{}
+    foreach ($diagnostic in $codeDiagnostics)
+    {
+        $fingerprint = Get-Fingerprint $diagnostic
+        if ($currentCounts.Contains($fingerprint)) { $currentCounts[$fingerprint]["count"] = $currentCounts[$fingerprint]["count"] + 1 }
+        else { $currentCounts[$fingerprint] = [ordered]@{ fingerprint = $fingerprint; count = 1; ruleId = $diagnostic.ruleId; path = $diagnostic.path; message = $diagnostic.message } }
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($BaselinePath))
     {
         if ($CreateBaseline)
         {
-            if ($AnalysisStatus -ne "passed") { throw "A baseline can only be created when the analysis completed." }
+            if ($AnalysisStatus -ne "passed" -or $ExecutionErrors.Count -gt 0) { throw "A baseline can only be created when the analysis completed without execution errors." }
             $baseline = [ordered]@{
-                schemaVersion = 1
+                schemaVersion = 2
                 toolVersion = $ToolVersion
                 configurationHash = $ConfigurationHash
                 target = $Target
                 createdAt = [DateTimeOffset]::UtcNow.ToString("o")
-                fingerprints = $fingerprints
+                entries = @($currentCounts.Values)
             }
-            $baseline | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $BaselinePath -Encoding UTF8
-            $baselineSummary = [ordered]@{ new = 0; existing = $normalized.Count; resolved = 0; state = "created" }
+            $baselineTemp = "$BaselinePath.$RunId.tmp"
+            $baseline | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $baselineTemp -Encoding UTF8
+            Move-Item -LiteralPath $baselineTemp -Destination $BaselinePath -Force
+            $storedCounts = @{}
+            foreach ($entry in $currentCounts.Values) { $storedCounts[$entry["fingerprint"]] = $entry["count"] }
+            $state = "created"
         }
         elseif (Test-Path -LiteralPath $BaselinePath)
         {
             $saved = Get-Content -LiteralPath $BaselinePath -Raw -Encoding UTF8 | ConvertFrom-Json
-            $savedFingerprints = @($saved.fingerprints)
-            $existingCount = @($fingerprints | Where-Object { $_ -in $savedFingerprints }).Count
-            $baselineSummary = [ordered]@{
-                new = $normalized.Count - $existingCount
-                existing = $existingCount
-                resolved = @($savedFingerprints | Where-Object { $_ -notin $fingerprints }).Count
-                state = if ($saved.toolVersion -eq $ToolVersion -and $saved.configurationHash -eq $ConfigurationHash) { "matched" } else { "reviewRequired" }
-            }
+            $storedCounts = @{}
+            # Schema 1 stored one fingerprint per diagnostic; repeated fingerprints are counted the same way.
+            foreach ($fingerprint in @($saved.fingerprints)) { if ($fingerprint) { $storedCounts["$fingerprint"] = 1 + [Int32]$storedCounts["$fingerprint"] } }
+            foreach ($entry in @($saved.entries)) { if ($entry.fingerprint) { $storedCounts["$($entry.fingerprint)"] = [Int32]$entry.count + [Int32]$storedCounts["$($entry.fingerprint)"] } }
+            $state = if ($saved.toolVersion -eq $ToolVersion -and $saved.configurationHash -eq $ConfigurationHash) { "matched" } else { "reviewRequired" }
         }
         else
         {
             throw "Baseline file not found: $BaselinePath"
         }
+
+        $remaining = @{}
+        foreach ($key in $storedCounts.Keys) { $remaining[$key] = $storedCounts[$key] }
+        foreach ($diagnostic in ($codeDiagnostics | Sort-Object line, column))
+        {
+            $fingerprint = Get-Fingerprint $diagnostic
+            if ([Int32]$remaining[$fingerprint] -gt 0)
+            {
+                $remaining[$fingerprint] = [Int32]$remaining[$fingerprint] - 1
+                $diagnostic.isNew = $false
+            }
+        }
+        $existingCount = @($normalized | Where-Object { -not $_.isNew }).Count
+        $resolvedCount = 0
+        foreach ($value in $remaining.Values) { $resolvedCount += [Int32]$value }
+        $baselineSummary = [ordered]@{ new = $normalized.Count - $existingCount; existing = $existingCount; resolved = $resolvedCount; state = $state }
     }
 
+    foreach ($diagnostic in $normalized)
+    {
+        $diagnostic.affectsVerdict = $diagnostic.isNew -and $diagnostic.ruleId -ne $configurationRuleId -and $severityRank[$diagnostic.severity] -le $failOnRank
+    }
+    $normalized = @($normalized | Sort-Object @{ Expression = { -not $_.affectsVerdict } }, @{ Expression = { $severityRank[$_.severity] } }, project, targetFramework, path, line, column, ruleId, message)
+    $verdictCount = @($normalized | Where-Object { $_.affectsVerdict }).Count
+
+    if ($FormatStatus -eq "failed" -and $FormatFailureKind -eq "none") { $FormatFailureKind = "differences" }
     $analysisCompleted = $AnalysisStatus -eq "passed"
-    $status = if ($FormatStatus -eq "failed" -or $BuildExitCode -ne 0 -or -not $analysisCompleted) { "failed" } elseif ($baselineSummary.new -gt 0) { "failed" } else { "passed" }
+    $isCheckIncomplete = -not $analysisCompleted -or $FormatStatus -in @("notRun", "unknown") -or $FormatFailureKind -in @("toolError", "timeout") -or $ExecutionErrors.Count -gt 0
+    $exitCode = if ($isCheckIncomplete) { 2 } elseif ($verdictCount -gt 0 -or $FormatFailureKind -eq "differences") { 1 } else { 0 }
+    $status = if ($exitCode -eq 0) { "passed" } else { "failed" }
+    $exitMeaning = @{ 0 = "passed"; 1 = "violations to fix"; 2 = "the check could not run or complete" }[$exitCode]
     $resultObject = [ordered]@{
         schemaVersion = 1
         toolVersion = $ToolVersion
@@ -187,14 +258,21 @@ end
         target = $Target
         configurationHash = $ConfigurationHash
         status = $status
+        exitCode = $exitCode
+        failOn = $FailOn
         formatStatus = $FormatStatus
+        formatFailureKind = $FormatFailureKind
+        formatFiles = @($FormatFiles)
         buildExitCode = $BuildExitCode
+        buildErrors = @($BuildErrors)
         analysisStatus = $AnalysisStatus
         analysisCompleted = $analysisCompleted
+        analysisCoverage = $AnalysisCoverage
         startedAt = $StartedAt
         finishedAt = [DateTimeOffset]::UtcNow.ToString("o")
         timings = $Timings
         totalDiagnostics = $normalized.Count
+        verdictDiagnostics = $verdictCount
         omittedDiagnostics = [Math]::Max(0, $normalized.Count - $MaxDiagnostics)
         baseline = $baselineSummary
         diagnostics = $normalized
@@ -211,11 +289,14 @@ end
     $report.Add("- Target: ``$Target``")
     $report.Add("- Started: $StartedAt")
     $report.Add("- Finished: $($resultObject.finishedAt)")
-    $report.Add("- Overall status: **$status**")
-    $report.Add("- Format status: **$FormatStatus**")
+    $report.Add("- Overall status: **$status** (exit code $exitCode`: $exitMeaning)")
+    $report.Add("- Fails on: $FailOn and more severe$(if ($baselineSummary.state -ne 'notUsed') { ', new diagnostics only' })")
+    $report.Add("- Format status: **$FormatStatus**$(if ($FormatFailureKind -ne 'none') { " ($FormatFailureKind)" })")
     $report.Add("- Build exit code: **$BuildExitCode**")
-    $report.Add("- Analysis status: **$AnalysisStatus** (completed: $analysisCompleted)")
-    $report.Add("- HBCS diagnostics: $($normalized.Count) (shown $($displayed.Count), omitted $($resultObject.omittedDiagnostics))")
+    $coverageText = if ($null -ne $AnalysisCoverage) { "; $($AnalysisCoverage.analyzed) of $($AnalysisCoverage.compilations) project builds analyzed" } else { "" }
+    $report.Add("- Analysis status: **$AnalysisStatus** (completed: $analysisCompleted$coverageText)")
+    $report.Add("- HBCS diagnostics: $($normalized.Count), $verdictCount affect the verdict (shown $($displayed.Count), omitted $($resultObject.omittedDiagnostics))")
+    if ($baselineSummary.state -ne "notUsed") { $report.Add("- Baseline: $($baselineSummary.state), new $($baselineSummary.new), existing $($baselineSummary.existing), resolved $($baselineSummary.resolved)") }
     $report.Add("- Full JSON: ``$JsonOutputPath``")
     $report.Add("")
     $report.Add("Zero HBCS diagnostics and a completed analysis are different things. If analysisCompleted is false, do not treat the check as finished.")
@@ -226,14 +307,33 @@ end
         $report.Add("")
         foreach ($executionError in $ExecutionErrors) { $report.Add("- $executionError") }
     }
+    if ($FormatFailureKind -eq "differences" -or ($FormatStatus -eq "passed" -and @($FormatFiles).Count -gt 0))
+    {
+        $isFixed = $FormatFailureKind -ne "differences"
+        $report.Add("")
+        $report.Add($(if ($isFixed) { "## Whitespace formatting fixed" } else { "## Whitespace formatting differences" }))
+        $report.Add("")
+        foreach ($file in @($FormatFiles)) { $report.Add("- ``$($file.path)`` line(s) $(@($file.lines) -join ', ')") }
+        if (-not $isFixed)
+        {
+            if (@($FormatFiles).Count -eq 0) { $report.Add("- The file list is not available; see the console output.") }
+            $report.Add("")
+            $report.Add("Run ``dotnet format whitespace `"$Target`"`` or the check with ``-Fix`` to apply the .editorconfig whitespace rules.")
+        }
+    }
     foreach ($diagnostic in $displayed)
     {
+        $verdictText = if ($diagnostic.ruleId -eq $configurationRuleId) { "does not affect the verdict (configuration problem: fix .editorconfig)" }
+            elseif (-not $diagnostic.isNew) { "does not affect the verdict (existing in the baseline)" }
+            elseif (-not $diagnostic.affectsVerdict) { "does not affect the verdict (below -FailOn $FailOn)" }
+            else { "affects the verdict" }
         $report.Add("")
-        $report.Add("## $($diagnostic.ruleId) $([char]0x00B7) $($diagnostic.severity)")
+        $report.Add("## $($diagnostic.ruleId) $([char]0x00B7) $($diagnostic.severity) $([char]0x00B7) $(if ($diagnostic.isNew) { 'new' } else { 'existing' })")
         $report.Add("")
         $report.Add("- Location: ``$($diagnostic.path):$($diagnostic.line):$($diagnostic.column)``")
         if ($diagnostic.project) { $report.Add("- Project/TFM: ``$($diagnostic.project)`` / ``$($diagnostic.targetFramework)``") }
         $report.Add("- Diagnostic: $($diagnostic.message -replace '\|', '\\|')")
+        $report.Add("- Verdict: $verdictText")
         $report.Add("- Help: $($diagnostic.helpUri)")
         $report.Add("- Fix caution: $($diagnostic.fixCaution)")
     }
@@ -266,4 +366,6 @@ end
         [Console]::Error.WriteLine("Failed to save the report: $_")
         exit 2
     }
+
+    return [PSCustomObject]$resultObject
 }

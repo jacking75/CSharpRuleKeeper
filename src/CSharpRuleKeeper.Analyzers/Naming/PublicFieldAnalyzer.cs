@@ -32,10 +32,8 @@ public sealed class PublicFieldAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        ImmutableHashSet<string> allowedAttributes = AnalyzerOptionsReader.GetSet(
-            context.Options,
-            tree,
-            "public_field_allowed_attributes");
+        ImmutableHashSet<string> allowedAttributes =
+            AnalyzerOptionsReader.GetSet(context.Options, tree, "public_field_allowed_attributes");
 
         if (AnalysisUtilities.HasAttribute(field, allowedAttributes) ||
             AnalysisUtilities.HasAttribute(field.ContainingType, allowedAttributes))
@@ -43,9 +41,10 @@ public sealed class PublicFieldAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
+        context.ReportDiagnostic(RuleSeverityPolicy.Create(
             RuleDefinitions.s_publicField,
             field.Locations[0],
+            context,
             field.Name));
     }
 }

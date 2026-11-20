@@ -157,6 +157,48 @@ public sealed class SafetyAndStyleAnalyzerTests
     }
 
     [Fact]
+    public async Task Layout_allows_comments_that_trail_preprocessor_directivesAsync()
+    {
+        const string source = """
+            #nullable enable // Reason for the context.
+            sealed class Example
+            {
+            #pragma warning disable HBCS005 // Reason for the suppression.
+                double _value = 42; // Statement comment.
+            #pragma warning restore HBCS005
+            #if DEBUG
+                void Trace() { }
+            #endif // DEBUG
+            }
+            """;
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new LayoutAnalyzer(),
+            source);
+
+        Diagnostic diagnostic = Assert.Single(
+            diagnostics,
+            diagnostic => diagnostic.Id == RuleIds.TrailingComment);
+        Assert.Equal(4, diagnostic.Location.GetLineSpan().StartLinePosition.Line);
+    }
+
+    [Theory]
+    [InlineData("class Example\r\n{\r\n}\r\n\r\n", 0)]
+    [InlineData("class Example\r\n{\r\n}\r\n\r\n\r\n", 1)]
+    public async Task Layout_does_not_count_the_end_of_file_as_a_blank_lineAsync(
+        string source,
+        Int32 expectedCount)
+    {
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new LayoutAnalyzer(),
+            source);
+
+        Assert.Equal(
+            expectedCount,
+            diagnostics.Count(diagnostic => diagnostic.Id == RuleIds.ConsecutiveBlankLines));
+    }
+
+    [Fact]
     public async Task Layout_reports_each_excess_blank_lineAsync()
     {
         const string source = "class Example\r\n{\r\n\r\n\r\n\r\n}\r\n";

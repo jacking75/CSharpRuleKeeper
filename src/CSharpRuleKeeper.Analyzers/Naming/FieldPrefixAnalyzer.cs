@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using CSharpRuleKeeper.Analyzers.Infrastructure;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 
@@ -40,9 +41,10 @@ public sealed class FieldPrefixAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
+        context.ReportDiagnostic(RuleSeverityPolicy.Create(
             RuleDefinitions.s_fieldPrefix,
             field.Locations[0],
+            context,
             field.Name,
             requiredPrefix));
     }

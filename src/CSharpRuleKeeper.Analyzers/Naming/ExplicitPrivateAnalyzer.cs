@@ -28,7 +28,7 @@ public sealed class ExplicitPrivateAnalyzer : DiagnosticAnalyzer
         {
             SyntaxToken privateModifier = member.Modifiers.FirstOrDefault(
                 modifier => modifier.IsKind(SyntaxKind.PrivateKeyword));
-            if (privateModifier == default)
+            if (privateModifier == default || !IsRedundantPrivate(member))
             {
                 continue;
             }
@@ -50,5 +50,23 @@ public sealed class ExplicitPrivateAnalyzer : DiagnosticAnalyzer
                 member.Kind().ToString(),
                 name));
         }
+    }
+
+    // Removing "private" must leave the accessibility unchanged and the code compiling.
+    // It changes "private protected" to "protected", makes an interface member public, and turns
+    // an extended partial method ([GeneratedRegex], [LoggerMessage]) into an invalid classic one.
+    // Members of other containers, such as C# 14 extension blocks, are left alone.
+    static bool IsRedundantPrivate(MemberDeclarationSyntax member)
+    {
+        if (member.Modifiers.Any(SyntaxKind.ProtectedKeyword) ||
+            (member.Modifiers.Any(SyntaxKind.PartialKeyword) && member is not BaseTypeDeclarationSyntax))
+        {
+            return false;
+        }
+
+        return member.Parent?.Kind() is SyntaxKind.ClassDeclaration
+            or SyntaxKind.StructDeclaration
+            or SyntaxKind.RecordDeclaration
+            or SyntaxKind.RecordStructDeclaration;
     }
 }

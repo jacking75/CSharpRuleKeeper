@@ -17,4 +17,7 @@ public static class RuleIds
     public const string TypeNaming = "HBCS013";
     public const string FieldPrefix = "HBCS014";
     public const string FileLength = "HBCS015";
+
+    // Configuration diagnostics are numbered from 900 so they never read as coding rules.
+    public const string InvalidOption = "HBCS900";
 }

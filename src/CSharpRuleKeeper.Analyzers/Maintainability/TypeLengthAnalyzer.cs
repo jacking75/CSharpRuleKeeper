@@ -11,9 +11,6 @@ namespace CSharpRuleKeeper.Analyzers.Maintainability;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class TypeLengthAnalyzer : DiagnosticAnalyzer
 {
-    const Int32 DefaultWarningLimit = 300;
-    const Int32 DefaultErrorLimit = 500;
-
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(
             RuleDefinitions.s_typeLengthWarning,
@@ -35,9 +32,7 @@ public sealed class TypeLengthAnalyzer : DiagnosticAnalyzer
     static void AnalyzeType(SyntaxNodeAnalysisContext context)
     {
         TypeDeclarationSyntax declaration = (TypeDeclarationSyntax)context.Node;
-        INamedTypeSymbol? type = context.SemanticModel.GetDeclaredSymbol(
-            declaration,
-            context.CancellationToken);
+        INamedTypeSymbol? type = context.SemanticModel.GetDeclaredSymbol(declaration, context.CancellationToken);
         if (type is null || IsExcluded(context, declaration, type))
         {
             return;
@@ -55,9 +50,10 @@ public sealed class TypeLengthAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
+        context.ReportDiagnostic(RuleSeverityPolicy.Create(
             descriptor,
             declaration.Identifier.GetLocation(),
+            context,
             type.Name,
             lineCount,
             AnalysisUtilities.GetExceededLimit(descriptor, limits)));
@@ -70,10 +66,7 @@ public sealed class TypeLengthAnalyzer : DiagnosticAnalyzer
         return AnalyzerOptionsReader.GetLimits(
             context.Options,
             declaration.SyntaxTree,
-            "type_lines_warning",
-            "type_lines_error",
-            DefaultWarningLimit,
-            DefaultErrorLimit);
+            RuleOptions.s_typeLines);
     }
 
     static bool IsExcluded(

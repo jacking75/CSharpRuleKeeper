@@ -1,10 +1,10 @@
 root = true
 
 [*.{cs,csx}]
-# Adopt contract-safe and clearly wrong patterns first.
-dotnet_diagnostic.HBCS001.severity = error
+# Adopt contract-safe and clearly wrong patterns first. HBCS001 and HBCS014 are errors by default, so they are
+# not listed: an explicit "= error" would make the standalone checker stop compiling a project that violates
+# them (see docs/CONFIGURATION.md, "Severities under the checker").
 dotnet_diagnostic.HBCS004.severity = warning
-dotnet_diagnostic.HBCS014.severity = error
 
 # Until the team agrees on taste rules, keep them informational or off.
 dotnet_diagnostic.HBCS003.severity = suggestion

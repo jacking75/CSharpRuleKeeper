@@ -10,8 +10,6 @@ namespace CSharpRuleKeeper.Analyzers.Infrastructure;
 
 static class AnalyzerOptionsReader
 {
-    const string Prefix = "personal_csharp_rules.";
-
     public static bool IsEnabled(
         AnalyzerOptions options,
         SyntaxTree tree,
@@ -28,26 +26,40 @@ static class AnalyzerOptionsReader
         string name,
         Int32 defaultValue)
     {
-        string? value = GetValue(options, tree, name);
-        return Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out Int32 result)
-            ? result
-            : defaultValue;
+        return TryParseInt(GetValue(options, tree, name)) ?? defaultValue;
     }
 
     public static (Int32 Warning, Int32 Error) GetLimits(
         AnalyzerOptions options,
         SyntaxTree tree,
-        string warningName,
-        string errorName,
-        Int32 defaultWarning,
-        Int32 defaultError)
+        LimitOption limit)
     {
-        Int32 warning = GetInt(options, tree, warningName, defaultWarning);
-        Int32 error = GetInt(options, tree, errorName, defaultError);
+        return ReadLimits(options, tree, limit).Effective;
+    }
 
-        return warning > 0 && error > warning
-            ? (warning, error)
-            : (defaultWarning, defaultError);
+    // An unparsable value falls back to its own default first; a pair that is still
+    // not 0 < warning < error falls back to both defaults.
+    public static LimitReading ReadLimits(AnalyzerOptions options, SyntaxTree tree, LimitOption limit)
+    {
+        string? warningText = GetValue(options, tree, limit.WarningName);
+        string? errorText = GetValue(options, tree, limit.ErrorName);
+        Int32? warning = TryParseInt(warningText);
+        Int32? error = TryParseInt(errorText);
+        Int32 requestedWarning = warning ?? limit.DefaultWarning;
+        Int32 requestedError = error ?? limit.DefaultError;
+        bool isValidPair = requestedWarning > 0 && requestedError > requestedWarning;
+        (Int32 Warning, Int32 Error) effective = isValidPair
+            ? (requestedWarning, requestedError)
+            : (limit.DefaultWarning, limit.DefaultError);
+
+        return new LimitReading(warningText, errorText, warning, error, effective);
+    }
+
+    public static Int32? TryParseInt(string? value)
+    {
+        return Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out Int32 result)
+            ? result
+            : null;
     }
 
     public static ImmutableHashSet<string> GetSet(
@@ -66,9 +78,9 @@ static class AnalyzerOptionsReader
             values.Select(item => item.Trim()).Where(item => item.Length > 0));
     }
 
-    static string? GetValue(AnalyzerOptions options, SyntaxTree tree, string name)
+    public static string? GetValue(AnalyzerOptions options, SyntaxTree tree, string name)
     {
-        string key = Prefix + name;
+        string key = RuleOptions.Prefix + name;
         AnalyzerConfigOptionsProvider provider = options.AnalyzerConfigOptionsProvider;
 
         if (provider.GetOptions(tree).TryGetValue(key, out string? treeValue))
@@ -79,5 +91,47 @@ static class AnalyzerOptionsReader
         return provider.GlobalOptions.TryGetValue(key, out string? globalValue)
             ? globalValue
             : null;
+    }
+}
+
+sealed class LimitReading
+{
+    public LimitReading(
+        string? warningText,
+        string? errorText,
+        Int32? warning,
+        Int32? error,
+        (Int32 Warning, Int32 Error) effective)
+    {
+        WarningText = warningText;
+        ErrorText = errorText;
+        Warning = warning;
+        Error = error;
+        Effective = effective;
+    }
+
+    public string? WarningText
+    {
+        get;
+    }
+
+    public string? ErrorText
+    {
+        get;
+    }
+
+    public Int32? Warning
+    {
+        get;
+    }
+
+    public Int32? Error
+    {
+        get;
+    }
+
+    public (Int32 Warning, Int32 Error) Effective
+    {
+        get;
     }
 }

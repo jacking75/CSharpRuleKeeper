@@ -11,117 +11,6 @@ namespace CSharpRuleKeeper.Analyzers.Tests;
 public sealed class MaintainabilityAnalyzerTests
 {
     [Fact]
-    public async Task MagicNumber_allows_defaults_and_intentional_contextsAsync()
-    {
-        const string source = """
-            using System;
-
-            sealed class NumberAttribute : Attribute
-            {
-                public NumberAttribute(Int32 value) { }
-            }
-
-            enum State
-            {
-                Ready = 30,
-            }
-
-            [Number(42)]
-            sealed class Example
-            {
-                const Int32 Limit = 60;
-
-                Int32 Read(Int32 value)
-                {
-                    Int32 flags = 1 << 5;
-                    return value + -1 + 0 + 1 + 2 + flags + Limit;
-                }
-            }
-            """;
-
-        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
-            new MagicNumberAnalyzer(),
-            source);
-
-        Assert.Empty(diagnostics);
-    }
-
-    [Fact]
-    public async Task MagicNumber_reports_three_unexplained_valuesAsync()
-    {
-        const string source = """
-            using System;
-
-            sealed class Example
-            {
-                Double Calculate(Double value)
-                {
-                    return value * 3.14 + 30 + 42;
-                }
-            }
-            """;
-
-        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
-            new MagicNumberAnalyzer(),
-            source);
-
-        Assert.Equal(3, diagnostics.Length);
-        Assert.All(diagnostics, diagnostic => Assert.Equal(RuleIds.MagicNumber, diagnostic.Id));
-    }
-
-    [Fact]
-    public async Task MagicNumber_honors_options_and_ignores_test_projectsAsync()
-    {
-        const string source = """
-            using System;
-
-            sealed class Example
-            {
-                Int32 Read() => 42;
-            }
-            """;
-
-        var testDiagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
-            new MagicNumberAnalyzer(),
-            source,
-            assemblyName: "Example.Tests");
-        Dictionary<string, string> options = new()
-        {
-            ["personal_csharp_rules.allow_magic_numbers"] = "42",
-        };
-        var configuredDiagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
-            new MagicNumberAnalyzer(),
-            source,
-            options);
-
-        Assert.Empty(testDiagnostics);
-        Assert.Empty(configuredDiagnostics);
-    }
-
-    [Fact]
-    public async Task MagicNumber_can_analyze_test_projects_when_enabledAsync()
-    {
-        const string source = """
-            sealed class Example
-            {
-                double Read() => 42;
-            }
-            """;
-        Dictionary<string, string> options = new()
-        {
-            ["personal_csharp_rules.analyze_test_projects"] = "true",
-        };
-
-        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
-            new MagicNumberAnalyzer(),
-            source,
-            options,
-            assemblyName: "Example.Tests");
-
-        Assert.Single(diagnostics);
-    }
-
-    [Fact]
     public async Task MethodLength_enforces_all_default_boundariesAsync()
     {
         var atWarningLimitDiagnostics = await GetMethodDiagnosticsAsync(30);
@@ -322,16 +211,20 @@ public sealed class MaintainabilityAnalyzerTests
         Assert.Empty(diagnostics);
     }
 
-    [Fact]
-    public async Task FileLength_enforces_all_default_boundariesAsync()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FileLength_enforces_all_default_boundariesAsync(bool hasFinalNewline)
     {
-        var atWarningLimitDiagnostics = await GetFileDiagnosticsAsync(500);
-        var aboveWarningLimitDiagnostics = await GetFileDiagnosticsAsync(501);
-        var atErrorLimitDiagnostics = await GetFileDiagnosticsAsync(1000);
-        var aboveErrorLimitDiagnostics = await GetFileDiagnosticsAsync(1001);
+        var atWarningLimitDiagnostics = await GetFileDiagnosticsAsync(500, hasFinalNewline);
+        var aboveWarningLimitDiagnostics = await GetFileDiagnosticsAsync(501, hasFinalNewline);
+        var atErrorLimitDiagnostics = await GetFileDiagnosticsAsync(1000, hasFinalNewline);
+        var aboveErrorLimitDiagnostics = await GetFileDiagnosticsAsync(1001, hasFinalNewline);
 
         Assert.Empty(atWarningLimitDiagnostics);
-        Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(aboveWarningLimitDiagnostics).Severity);
+        Diagnostic aboveWarningLimit = Assert.Single(aboveWarningLimitDiagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, aboveWarningLimit.Severity);
+        Assert.Contains("has 501 physical lines", aboveWarningLimit.GetMessage());
         Assert.Equal(DiagnosticSeverity.Warning, Assert.Single(atErrorLimitDiagnostics).Severity);
         Assert.Equal(DiagnosticSeverity.Error, Assert.Single(aboveErrorLimitDiagnostics).Severity);
     }
@@ -414,11 +307,12 @@ public sealed class MaintainabilityAnalyzerTests
     }
 
     static Task<System.Collections.Immutable.ImmutableArray<Diagnostic>> GetFileDiagnosticsAsync(
-        Int32 physicalLineCount)
+        Int32 physicalLineCount,
+        bool hasFinalNewline)
     {
         return AnalyzerTestHarness.GetDiagnosticsAsync(
             new FileLengthAnalyzer(),
-            BuildFile(physicalLineCount));
+            BuildFile(physicalLineCount, hasFinalNewline));
     }
 
     static string BuildMethod(Int32 physicalLineCount)
@@ -452,17 +346,19 @@ public sealed class MaintainabilityAnalyzerTests
         return source.ToString();
     }
 
-    static string BuildFile(Int32 physicalLineCount)
+    // Alternates comment and blank lines; the last line always has content, so the count is unambiguous.
+    static string BuildFile(Int32 physicalLineCount, bool hasFinalNewline = false)
     {
         StringBuilder source = new();
         for (Int32 index = 0; index < physicalLineCount; index++)
         {
-            if (index % 2 == 0)
+            bool isLastLine = index == physicalLineCount - 1;
+            if (index % 2 == 0 || isLastLine)
             {
                 source.Append("// Physical file line.");
             }
 
-            if (index < physicalLineCount - 1)
+            if (!isLastLine || hasFinalNewline)
             {
                 source.AppendLine();
             }

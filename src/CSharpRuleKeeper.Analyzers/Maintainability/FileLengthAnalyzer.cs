@@ -10,9 +10,6 @@ namespace CSharpRuleKeeper.Analyzers.Maintainability;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class FileLengthAnalyzer : DiagnosticAnalyzer
 {
-    const Int32 DefaultWarningLimit = 500;
-    const Int32 DefaultErrorLimit = 1000;
-
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(
             RuleDefinitions.s_fileLengthWarning,
@@ -22,20 +19,21 @@ public sealed class FileLengthAnalyzer : DiagnosticAnalyzer
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterSyntaxTreeAction(AnalyzeTree);
+        context.RegisterCompilationStartAction(startContext =>
+        {
+            CompilationOptions compilationOptions = startContext.Compilation.Options;
+            startContext.RegisterSyntaxTreeAction(treeContext => AnalyzeTree(treeContext, compilationOptions));
+        });
     }
 
-    static void AnalyzeTree(SyntaxTreeAnalysisContext context)
+    static void AnalyzeTree(SyntaxTreeAnalysisContext context, CompilationOptions compilationOptions)
     {
         SourceText text = context.Tree.GetText(context.CancellationToken);
-        Int32 lineCount = text.Lines.Count;
+        Int32 lineCount = AnalysisUtilities.CountFileLines(text);
         (Int32 Warning, Int32 Error) limits = AnalyzerOptionsReader.GetLimits(
             context.Options,
             context.Tree,
-            "file_lines_warning",
-            "file_lines_error",
-            DefaultWarningLimit,
-            DefaultErrorLimit);
+            RuleOptions.s_fileLines);
 
         DiagnosticDescriptor? descriptor = AnalysisUtilities.SelectLengthDescriptor(
             lineCount,
@@ -48,9 +46,12 @@ public sealed class FileLengthAnalyzer : DiagnosticAnalyzer
         }
 
         Location location = Location.Create(context.Tree, text.Lines[0].Span);
-        context.ReportDiagnostic(Diagnostic.Create(
+        context.ReportDiagnostic(RuleSeverityPolicy.Create(
             descriptor,
             location,
+            context.Options,
+            compilationOptions,
+            context.CancellationToken,
             lineCount,
             AnalysisUtilities.GetExceededLimit(descriptor, limits)));
     }

@@ -1,31 +1,45 @@
 # CSharpRuleKeeper
 
-[한국어](README_kr.md) · ![License: MIT](https://img.shields.io/badge/license-MIT-blue) ![Tested with .NET SDK 10](https://img.shields.io/badge/tested-.NET%20SDK%2010-512bd4) ![Windows PowerShell 5.1](https://img.shields.io/badge/Windows%20PowerShell-5.1-5391fe)
+[한국어](README_kr.md) · ![License: MIT](https://img.shields.io/badge/license-MIT-blue) ![Target .NET SDK 8.0.100 or later](https://img.shields.io/badge/target%20SDK-8.0.100%2B-512bd4) ![Windows PowerShell 5.1](https://img.shields.io/badge/Windows%20PowerShell-5.1-5391fe)
 
-A standalone C# rule checker for code written by people and coding agents. Zero changes to your project files.
+<img src="docs/images/infographic-en.png" width="760" alt="CSharpRuleKeeper overview. How it works, in four steps: format check, inject the analyzer for this build only, build and analyze, report and exit code. Agent hook loop: the agent says done, the Stop hook runs the check, violations are sent back, the agent fixes them and the hook checks again until it passes. Zero changes to your project files. 15 rules, HBCS001 to HBCS015. Markdown and JSON report. Exit codes: 0 pass, 1 violations, 2 could not run. MIT License, Windows PowerShell 5.1, .NET SDK.">
 
-## Why
+CSharpRuleKeeper checks C# code against 15 naming, length and layout rules. It runs from the command line on any solution or project without editing its files, and it plugs into the Stop hook of Claude Code or Codex CLI, so a coding agent that says "done" gets the violations back and fixes them before it can stop.
 
-- **Agents drift from your rules.** Run the checker when a task finishes and feed violations straight back to the agent.
-- **Nothing is added to your project.** The analyzer is injected for a single build; your `.csproj`, `.sln`, props and `.editorconfig` stay untouched.
-- **Humans and machines both get a verdict.** A Markdown report to read, a JSON contract to automate, and exit codes that separate "rule violations" from "the check could not run".
+## Is it for you?
+
+This is an **opinionated rule set**: it encodes one developer's conventions. For example, it wants `Int32` instead of `int`, abstract classes named `...Base`, private fields named `_camelCase`, and no comments at the end of a code line. Every rule can be turned off, made less severe, or tuned through `.editorconfig` ([Configuration](docs/CONFIGURATION.md)).
+
+- **For you if** you work on Windows, use coding agents on C# code, and want them held to a fixed style automatically, or you want a scriptable check with clear exit codes.
+- **Not for you if** you want a broad, community-standard rule library (use the .NET analyzers, StyleCop or Roslynator), live analysis while you type, or macOS, Linux or PowerShell 7.
+
+`HBCS001`...`HBCS015` are the rule IDs; `HBCS` is simply this project's diagnostic prefix. Options are `.editorconfig` keys that start with `personal_csharp_rules.`, a name kept from the rules' origin as personal conventions.
 
 ## How it works
 
-```text
-1. dotnet format whitespace --verify-no-changes   (read-only unless -Fix)
-2. inject the analyzer for this build only        (your own build extensions are kept)
-3. build with the target's own SDK and TFMs
-4. collect SARIF and completion markers           (proves the analysis really ran)
-5. write Markdown + JSON report and an exit code
-```
+1. `dotnet format whitespace --verify-no-changes` checks whitespace against the target's `.editorconfig` (read-only unless you pass `-Fix`).
+2. The analyzer is attached to this one build through MSBuild properties. No `.csproj`, `.sln`, props file or `.editorconfig` is edited, and nothing is installed into the project.
+3. The target is built with its own SDK and target frameworks (`--no-incremental`, so its `bin` and `obj` folders are rebuilt).
+4. The checker proves that the analyzer really ran in every project build, then writes a Markdown report, a JSON result and an exit code.
 
-## Quick start (60 seconds)
+## Install
 
-Download the release ZIP and unpack it (or clone this repository), then:
+The docs use `C:\tools\CSharpRuleKeeper` for the tool folder; use any folder you like.
+
+- **From source (works today).** Needs a .NET 10 SDK, 10.0.400 or later, to build the analyzer; this happens automatically on the first check.
+
+  ```powershell
+  git clone https://github.com/jacking75/CSharpRuleKeeper.git C:\tools\CSharpRuleKeeper
+  ```
+
+- **Release ZIP.** When a release is listed on the [Releases page](https://github.com/jacking75/CSharpRuleKeeper/releases), download `CSharpRuleKeeper-<version>.zip`. It unpacks to one folder, `CSharpRuleKeeper-<version>\`, that contains the prebuilt analyzer, so it needs no SDK of its own. Until the first release is published, use the source path.
+
+Either way you need Windows PowerShell 5.1 and the SDK your target already builds with (8.0.100 or later). Details: [Getting started](docs/GETTING_STARTED.md#1-get-the-tool).
+
+## Quick start
 
 ```powershell
-# 1. Check your environment (read-only)
+# 1. Check the environment (read-only)
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Doctor -Solution .\MySolution.sln
 
 # 2. Run the check
@@ -35,45 +49,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\bu
 notepad .\report.md
 ```
 
-`-Solution` accepts a `.sln`, `.slnx` or `.csproj`. A source checkout builds the analyzer on first use and needs a 10.0.4xx .NET SDK; a release bundle needs only the SDK your target already requires. Practice on the bundled sample: [Getting started](docs/GETTING_STARTED.md).
+`-Solution` takes a `.sln`, `.slnx`, `.csproj` or a folder that contains one. Every option and a practice run on the bundled sample: [Getting started](docs/GETTING_STARTED.md).
 
-## What a report looks like
+A finding in the report (real output):
 
 ```markdown
-## HBCS001 · error
+## HBCS001 · error · new
 
-- Location: `src\Order.cs:12:23`
-- Project/TFM: `Shop` / `net10.0`
-- Diagnostic: Public field 'Total' must be replaced or explicitly excepted
+- Location: `RuleViolations.cs:8:18`
+- Project/TFM: `SampleConsumer` / `net10.0`
+- Diagnostic: Public field 'Count' must be replaced or explicitly excepted
+- Verdict: affects the verdict
 - Help: https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/RULES.md#hbcs001
 - Fix caution: Review external API, serialization and interop contracts, and encapsulate only when it is safe.
 ```
 
-```json
-{
-  "schemaVersion": 1,
-  "status": "failed",
-  "formatStatus": "passed",
-  "analysisStatus": "passed",
-  "analysisCompleted": true,
-  "totalDiagnostics": 1,
-  "diagnostics": [
-    { "ruleId": "HBCS001", "severity": "error", "path": "src\\Order.cs", "line": 12, "column": 23, "message": "Public field 'Total' must be replaced or explicitly excepted" }
-  ],
-  "executionErrors": []
-}
-```
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Pass: the check completed and nothing counts against it. |
+| `1` | Violations: the check completed and found HBCS diagnostics at or above `-FailOn` (default `warning`), or whitespace differences. |
+| `2` | Could not run or complete: bad arguments, missing SDK, a compile error, a project that was not analyzed, a timeout, and similar. |
+
+Zero diagnostics is not a completed analysis: check `analysisCompleted` in the JSON. The full contract is in [Report](docs/REPORT.md).
 
 ## Use it as a coding-agent hook
 
-The point of this tool: when an agent says "done", check the code, and send violations back so the agent fixes them.
+When the agent finishes, the Stop hook runs the check. Violations go back to the agent as a block reason; after 3 blocks in a row the hook lets the agent stop and tells the human instead. Problems the agent cannot fix (a missing SDK, a timeout) are shown to the human and never block.
 
-```text
-implement -> Stop hook -> changes? -> check -> violations -> agent fixes -> check again -> pass
-                                                  \-> retry limit (3): release the agent, tell the human
-```
-
-Claude Code (`.claude/settings.json`), Windows:
+Claude Code, `.claude/settings.json` on Windows:
 
 ```json
 {
@@ -94,83 +99,75 @@ Claude Code (`.claude/settings.json`), Windows:
 }
 ```
 
-Codex CLI and TOML variants are in [`hooks/`](hooks/README.md); paste [`hooks/AGENT_INSTRUCTIONS.md`](hooks/AGENT_INSTRUCTIONS.md) into the target project's `AGENTS.md` or `CLAUDE.md`. The adapter skips the check when no `.cs`/`.csproj`/`.props`/`.targets`/`.editorconfig` file changed, stops blocking after 3 attempts, finds the solution by itself, and never formats or edits code. Details: [Hooks](docs/HOOKS.md).
+The hook checks the **whole solution**, not only the files the agent changed, so on an existing codebase start with a baseline ([Hooks: existing codebase](docs/HOOKS.md#adopting-the-hook-on-an-existing-codebase)). It finds the solution by itself, skips the check in a git repository when nothing changed since the last pass, and never formats or edits code. Codex CLI settings and a paragraph for the project's `AGENTS.md`/`CLAUDE.md` are in [`hooks/`](hooks/README.md); everything else is in [Hooks](docs/HOOKS.md).
 
 ## Rules
 
 | ID | Rule | Default severity |
 | --- | --- | --- |
-| [HBCS001](docs/RULES.md#hbcs001) | Disallow public fields unless excepted | error |
-| [HBCS002](docs/RULES.md#hbcs002) | Boolean names express a state | warning |
+| [HBCS001](docs/RULES.md#hbcs001) | No public fields unless excepted | error |
+| [HBCS002](docs/RULES.md#hbcs002) | Boolean names start with `is`/`has`/`can`/`should`/`needs` | warning |
 | [HBCS003](docs/RULES.md#hbcs003) | Collection names are plural | warning |
-| [HBCS004](docs/RULES.md#hbcs004) | Use `nameof` in verified contexts | warning |
-| [HBCS005](docs/RULES.md#hbcs005) | Avoid magic numbers | warning |
-| [HBCS006](docs/RULES.md#hbcs006) | Limit method physical lines | >30 warning, >100 error |
-| [HBCS007](docs/RULES.md#hbcs007) | Limit type physical lines | >300 warning, >500 error |
+| [HBCS004](docs/RULES.md#hbcs004) | `nameof` instead of identifier strings (has a Code Fix) | warning |
+| [HBCS005](docs/RULES.md#hbcs005) | No magic numbers | warning |
+| [HBCS006](docs/RULES.md#hbcs006) | Method length | >30 lines warning, >100 error |
+| [HBCS007](docs/RULES.md#hbcs007) | Type length | >300 lines warning, >500 error |
 | [HBCS008](docs/RULES.md#hbcs008) | Omit redundant `private` | info |
-| [HBCS009](docs/RULES.md#hbcs009) | No trailing comments | warning |
+| [HBCS009](docs/RULES.md#hbcs009) | No comments at the end of code lines | warning |
 | [HBCS010](docs/RULES.md#hbcs010) | No consecutive blank lines | warning |
-| [HBCS011](docs/RULES.md#hbcs011) | Explicit-width integer names (`Int32`) | warning |
-| [HBCS012](docs/RULES.md#hbcs012) | Limit line length | >120 warning |
-| [HBCS013](docs/RULES.md#hbcs013) | Required type and `Async` naming | warning |
+| [HBCS011](docs/RULES.md#hbcs011) | `Int32`/`Int64`/`UInt32`/`UInt64` instead of `int`/`long`/`uint`/`ulong` | warning |
+| [HBCS012](docs/RULES.md#hbcs012) | Line length | >120 characters warning |
+| [HBCS013](docs/RULES.md#hbcs013) | `I...` interfaces, `...Attribute`, `...Base` abstract classes, `...Async` methods | warning |
 | [HBCS014](docs/RULES.md#hbcs014) | Field prefixes `_`, `s_`, `t_` | error |
-| [HBCS015](docs/RULES.md#hbcs015) | Limit source-file physical lines | >500 warning, >1000 error |
+| [HBCS015](docs/RULES.md#hbcs015) | Source file length | >500 lines warning, >1000 error |
 
-Generated code is skipped. Rule IDs are public: their meaning and severity do not change without a compatibility review.
+Generated code is never analyzed. A configuration diagnostic, [HBCS900](docs/RULES.md#hbcs900), reports an invalid option value in `.editorconfig`; it is not a coding rule and never affects the verdict. Published rule IDs keep their meaning and default severity unless a compatibility review says otherwise.
 
-## Configure
+## Configure and adopt
 
-Add options to your project's `.editorconfig`:
+Tune a rule in the target's `.editorconfig`:
 
 ```ini
 [*.cs]
 personal_csharp_rules.method_lines_warning = 40
 personal_csharp_rules.method_lines_error = 120
-personal_csharp_rules.max_line_length = 140
-personal_csharp_rules.allow_magic_numbers = -1,0,1,2,100
-personal_csharp_rules.public_field_allowed_attributes = StructLayout,DataMember
+dotnet_diagnostic.HBCS011.severity = none
 ```
 
-All options, per-folder overrides and the [presets](config/presets) are in [Configuration](docs/CONFIGURATION.md). List the options with `-ExplainEditorConfig`.
-
-## Exit codes and the JSON contract
-
-| Code | Meaning |
-| --- | --- |
-| `0` | Format, build and analysis completed; the policy passed. |
-| `1` | Analysis completed; HBCS violations were found. |
-| `2` | Format, build, configuration, timeout, report or completion check failed. |
-
-Zero diagnostics is not a completed analysis: check `analysisCompleted`. Fields and baselines: [Report](docs/REPORT.md).
-
-## Adopting on an existing codebase
+On a codebase with existing violations, record them once and fail only on new ones:
 
 ```powershell
-.\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\baseline.json -CreateBaseline
-.\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\baseline.json
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\csharprulekeeper-baseline.json -CreateBaseline
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -BaselinePath .\csharprulekeeper-baseline.json
 ```
 
-The first run records today's diagnostics; later runs fail only on new ones. See [Report](docs/REPORT.md#baselines).
+How matching works and where it stops being exact: [Report: baselines](docs/REPORT.md#baselines). All options, severities, suppressions and conflicts with other analyzers: [Configuration](docs/CONFIGURATION.md).
 
-## Supported environment
+## Requirements
 
-- Verified: Windows with Windows PowerShell 5.1. PowerShell 7, macOS and Linux are not supported.
-- The target is built with its own installed SDK and target frameworks (`-Doctor` reads its `global.json`).
-- The analyzer targets `netstandard2.0`. Building this repository needs a 10.0.4xx SDK (`global.json`); release bundles do not.
+- Windows with Windows PowerShell 5.1. PowerShell 7, macOS and Linux are not supported.
+- The target builds with its own installed SDK. The analyzer needs the compiler of .NET SDK 8.0.100 or later; with an older SDK the compiler skips it (warning CS9057) and the checker exits 2 instead of reporting a false pass.
+- A source checkout also needs a .NET 10 SDK, 10.0.400 or later, to build the analyzer (`global.json` rolls forward to later 10.0 feature bands). A release ZIP does not.
 
 ## FAQ
 
-- **Does it change my files?** No. `-Fix` is the only exception and applies whitespace formatting only.
-- **Is there a NuGet package?** Not published. `dotnet pack src/CSharpRuleKeeper.CodeFixes` creates a local one.
-- **Can I use it inside the IDE?** Only the HBCS004 Code Fix ships in the package; the injection approach installs nothing in the IDE.
-- **Why PowerShell?** It adds no dependency beyond the .NET SDK on Windows.
-- **Is it slow?** About 30 seconds for this repository; build time dominates.
+- **Does it change my files?** Tracked files are not touched, except with `-Fix`, which applies whitespace formatting only. The build rewrites the target's own `bin` and `obj` output, the checker writes the report where `-OutputPath` points, and the hook keeps its report in `.csharprulekeeper\` with its own `.gitignore`.
+- **How is it different from StyleCop, Roslynator or `.editorconfig` alone?** Those are broad rule libraries you add to the project. This is a small fixed rule set plus a runner that checks any solution without editing it, proves the analysis ran, and speaks the agents' hook protocol. Some rules overlap or conflict with common ones; see [coexistence](docs/CONFIGURATION.md#working-with-other-analyzers).
+- **Can I use only some rules?** Yes. Set the others to `none` in `.editorconfig`, or use `-FailOn error` so that only error-severity findings fail the check.
+- **Does it work in CI?** It is a command with exit codes and a JSON result, so any Windows build agent with Windows PowerShell 5.1 and the SDK can run it. No CI workflow is provided.
+- **Is there a NuGet package?** None is published. `dotnet pack src/CSharpRuleKeeper.CodeFixes -c Release` builds a local package that contains all analyzers and the HBCS004 Code Fix. It then behaves like any analyzer package: error-severity rules break the build. IDE loading of the Code Fix has not been verified.
+- **Why PowerShell?** Windows PowerShell 5.1 ships with Windows, so the tool needs nothing beyond the .NET SDK.
+- **Is it slow?** A check costs about one clean build of the target plus a few seconds: 14 to 20 seconds for the small sample projects on the maintainer's machine.
+
+## Documentation
+
+[Getting started](docs/GETTING_STARTED.md) · [Rules](docs/RULES.md) · [Configuration](docs/CONFIGURATION.md) · [Hooks](docs/HOOKS.md) · [Report and exit codes](docs/REPORT.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ## Repository layout
 
 ```text
-src/CSharpRuleKeeper.Analyzers   rules and analyzers
-src/CSharpRuleKeeper.CodeFixes   safe Code Fix (HBCS004)
+src/CSharpRuleKeeper.Analyzers   rules and analyzers (netstandard2.0)
+src/CSharpRuleKeeper.CodeFixes   HBCS004 Code Fix and NuGet packaging
 build/                           checker, hook adapter, report, tests, bundle script
 hooks/                           agent hook examples and instruction snippets
 docs/  docs/ko/                  documentation (English / Korean)
@@ -179,7 +176,7 @@ samples/SampleConsumer           practice project
 tests/                           analyzer unit tests
 ```
 
-## Development
+## Development, contributing, security and license
 
 ```powershell
 dotnet format --verify-no-changes
@@ -188,8 +185,4 @@ dotnet test
 .\build\run-quality-gate.ps1
 ```
 
-The quality gate adds external-project injection, failure classification, report, hook and documentation-link tests, and a self check that must report zero diagnostics (a few minutes). `global.json` pins the SDK for building this repository only. See the [maintainer guide](docs/MAINTAINERS.md) and [release checklist](docs/RELEASE_CHECKLIST.md).
-
-## Contributing and license
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md). Licensed under the [MIT License](LICENSE).
+The quality gate restores, formats, builds and tests, runs the script contract tests and checks this repository with itself; it must report zero diagnostics. See [CONTRIBUTING.md](CONTRIBUTING.md), the [maintainer guide](docs/MAINTAINERS.md) and [CHANGELOG.md](CHANGELOG.md). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md); the [code of conduct](CODE_OF_CONDUCT.md) applies to all project spaces. Licensed under the [MIT License](LICENSE).

@@ -1,39 +1,56 @@
 name: Bug report
-description: Report a reproducible analyzer or execution problem
+description: Report a reproducible analyzer, checker or hook problem
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security problems here; see SECURITY.md. Do not paste secrets or a complete private codebase.
   - type: input
     id: version
     attributes:
       label: Tool version
+      description: From `build/version.txt` or the first lines of `-Doctor`; say whether you use a source checkout or a release ZIP
     validations:
       required: true
   - type: textarea
-    id: environment
+    id: command
     attributes:
-      label: Environment
-      description: OS, SDK, PowerShell and exact command
+      label: Exact command and exit code
+      description: The full command line (checker or hook) and the exit code it returned
+      render: powershell
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of -Doctor
+      description: "`Invoke-CSharpRuleKeeper.ps1 -Doctor -Solution <your target>`; shorten personal paths if you like"
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: JSON result
+      description: The JSON written next to the report (or the hook's `last-report.json`), at least `exitCode`, `analysisCompleted`, `analysisCoverage`, `executionErrors` and the relevant `diagnostics`
+      render: json
     validations:
       required: true
   - type: textarea
     id: config
     attributes:
       label: Relevant configuration
+      description: The `.editorconfig` lines that matter, and hook settings if the hook is involved
   - type: textarea
     id: reproduction
     attributes:
       label: Minimal reproduction
-      description: Do not include secrets or a complete private codebase
+      description: A small code sample or project that shows the problem
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected diagnostics
-    validations:
-      required: true
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual diagnostics and execution state
+      label: Expected and actual behavior
     validations:
       required: true

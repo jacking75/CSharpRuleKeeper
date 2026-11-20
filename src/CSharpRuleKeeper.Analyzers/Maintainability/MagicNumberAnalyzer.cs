@@ -23,7 +23,7 @@ public sealed class MagicNumberAnalyzer : DiagnosticAnalyzer
         context.EnableConcurrentExecution();
         context.RegisterCompilationStartAction(startContext =>
         {
-            bool isTestAssembly = AnalysisUtilities.IsTestAssembly(startContext.Compilation.AssemblyName);
+            bool isTestAssembly = AnalysisUtilities.IsTestProject(startContext.Compilation, startContext.Options);
             startContext.RegisterSyntaxNodeAction(
                 nodeContext => AnalyzeLiteral(nodeContext, isTestAssembly),
                 SyntaxKind.NumericLiteralExpression);
@@ -36,20 +36,17 @@ public sealed class MagicNumberAnalyzer : DiagnosticAnalyzer
         bool shouldAnalyzeTestProjects = AnalyzerOptionsReader.IsEnabled(
             context.Options,
             literal.SyntaxTree,
-            "analyze_test_projects",
+            RuleOptions.AnalyzeTestProjects,
             isEnabledByDefault: false);
         if (isTestAssembly && !shouldAnalyzeTestProjects)
         {
             return;
         }
 
-        if (IsExcludedContext(literal))
-        {
-            return;
-        }
-
         (string value, SyntaxNode diagnosticNode) = GetLiteralValue(literal);
-        if (IsAllowedValue(context, literal, value))
+        if (IsExcludedContext(literal) ||
+            IsNamedDeclarationValue(diagnosticNode) ||
+            IsAllowedValue(context, literal, value))
         {
             return;
         }
@@ -91,6 +88,24 @@ public sealed class MagicNumberAnalyzer : DiagnosticAnalyzer
 
         return literal.Parent?.Parent is BinaryExpressionSyntax parentBinary &&
             parentBinary.IsKind(SyntaxKind.LeftShiftExpression);
+    }
+
+    // The declared name already explains the value: "Int32 maxRetries = 3;" or
+    // "static readonly TimeSpan s_timeout = TimeSpan.FromSeconds(30);". A literal that is any
+    // other part of the initializer, such as "count * 37", still needs its own name.
+    static bool IsNamedDeclarationValue(SyntaxNode value)
+    {
+        SyntaxNode? parent = value.Parent;
+        if (parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: { } call } } &&
+            call is InvocationExpressionSyntax or BaseObjectCreationExpressionSyntax)
+        {
+            parent = call.Parent;
+        }
+
+        return parent is EqualsValueClauseSyntax
+        {
+            Parent: VariableDeclaratorSyntax or PropertyDeclarationSyntax,
+        };
     }
 
     static bool IsConstantInitializer(LiteralExpressionSyntax literal)

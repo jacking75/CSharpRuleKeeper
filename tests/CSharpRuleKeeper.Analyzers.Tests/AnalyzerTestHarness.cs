@@ -23,19 +23,27 @@ static class AnalyzerTestHarness
         string source,
         IReadOnlyDictionary<string, string>? options = null,
         string assemblyName = "Production",
-        string path = "Test.cs")
+        string path = "Test.cs",
+        IReadOnlyDictionary<string, ReportDiagnostic>? configuredSeverities = null)
     {
         SyntaxTree tree = CSharpSyntaxTree.ParseText(
             SourceText.From(source),
             new CSharpParseOptions(LanguageVersion.Preview),
             path);
+        CSharpCompilationOptions compilationSettings = new(
+            OutputKind.DynamicallyLinkedLibrary,
+            nullableContextOptions: NullableContextOptions.Enable);
+        if (configuredSeverities is not null)
+        {
+            compilationSettings = compilationSettings.WithSyntaxTreeOptionsProvider(
+                new TestSyntaxTreeOptionsProvider(configuredSeverities));
+        }
+
         CSharpCompilation compilation = CSharpCompilation.Create(
             assemblyName,
             new[] { tree },
             s_references,
-            new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
-                nullableContextOptions: NullableContextOptions.Enable));
+            compilationSettings);
         AnalyzerOptions analyzerOptions = new(
             ImmutableArray<AdditionalText>.Empty,
             new TestAnalyzerConfigOptionsProvider(options, null));
@@ -203,6 +211,40 @@ static class AnalyzerTestHarness
         public override AnalyzerConfigOptions GetOptions(AdditionalText textFile)
         {
             return _options;
+        }
+    }
+
+    // Stands in for dotnet_diagnostic.<id>.severity entries of an .editorconfig.
+    sealed class TestSyntaxTreeOptionsProvider : SyntaxTreeOptionsProvider
+    {
+        readonly IReadOnlyDictionary<string, ReportDiagnostic> _severities;
+
+        public TestSyntaxTreeOptionsProvider(IReadOnlyDictionary<string, ReportDiagnostic> severities)
+        {
+            _severities = severities;
+        }
+
+        public override GeneratedKind IsGenerated(SyntaxTree tree, CancellationToken cancellationToken)
+        {
+            return GeneratedKind.NotGenerated;
+        }
+
+        public override bool TryGetDiagnosticValue(
+            SyntaxTree tree,
+            string diagnosticId,
+            CancellationToken cancellationToken,
+            out ReportDiagnostic severity)
+        {
+            return _severities.TryGetValue(diagnosticId, out severity);
+        }
+
+        public override bool TryGetGlobalDiagnosticValue(
+            string diagnosticId,
+            CancellationToken cancellationToken,
+            out ReportDiagnostic severity)
+        {
+            severity = ReportDiagnostic.Default;
+            return false;
         }
     }
 

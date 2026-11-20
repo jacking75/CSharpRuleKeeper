@@ -4,6 +4,7 @@ namespace CSharpRuleKeeper.Analyzers;
 
 static class RuleDefinitions
 {
+    const string ConfigurationCategory = "Configuration";
     const string DesignCategory = "Design";
     const string MaintainabilityCategory = "Maintainability";
     const string NamingCategory = "Naming";
@@ -136,12 +137,23 @@ static class RuleDefinitions
         NamingCategory,
         DiagnosticSeverity.Error);
 
+    // Reported once per compilation, at the first line of the first source file (by path) in which
+    // the invalid value is in effect, so that SARIF, baselines and hooks get a real location.
+    internal static readonly DiagnosticDescriptor s_invalidOption = Create(
+        RuleIds.InvalidOption,
+        "Invalid CSharpRuleKeeper option value",
+        "Option '{0}' has invalid value '{1}': {2}; using {3}",
+        ConfigurationCategory,
+        DiagnosticSeverity.Warning,
+        WellKnownDiagnosticTags.CompilationEnd);
+
     static DiagnosticDescriptor Create(
         string id,
         string title,
         string messageFormat,
         string category,
-        DiagnosticSeverity severity)
+        DiagnosticSeverity severity,
+        params string[] customTags)
     {
         return new DiagnosticDescriptor(
             id,
@@ -150,6 +162,7 @@ static class RuleDefinitions
             category,
             severity,
             isEnabledByDefault: true,
-            helpLinkUri: $"{HelpLinkBase}#{id.ToLowerInvariant()}");
+            helpLinkUri: $"{HelpLinkBase}#{id.ToLowerInvariant()}",
+            customTags: customTags);
     }
 }

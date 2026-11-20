@@ -2,38 +2,41 @@
 
 [한국어](ko/MAINTAINERS.md) | [Release checklist](RELEASE_CHECKLIST.md) | [Rules](RULES.md)
 
+This page is for people who change the tool itself. It is not part of the release ZIP.
+
 ## Overview
 
 CSharpRuleKeeper separates formatting from meaning-based linting. `dotnet format whitespace` checks or fixes whitespace only. Roslyn analyzers check what needs semantic information (public fields, names, method length). Code that would change an API, storage format or execution order is never fixed automatically.
 
 | Path | Responsibility |
 | --- | --- |
-| `src/CSharpRuleKeeper.Analyzers` | Rule IDs, messages and analyzers (`netstandard2.0`). |
-| `src/CSharpRuleKeeper.CodeFixes` | Provably safe fixes; currently only `nameof` (HBCS004). |
+| `src/CSharpRuleKeeper.Analyzers` | Rule IDs, messages and analyzers (`netstandard2.0`, built against Microsoft.CodeAnalysis 4.8.0 so that SDK 8.0.100 and later can load them). |
+| `src/CSharpRuleKeeper.CodeFixes` | Provably safe fixes, currently only `nameof` (HBCS004), and the NuGet package definition. |
 | `build/Invoke-CSharpRuleKeeper.ps1` | The checker for other projects. Does not modify the target. |
-| `build/CSharpRuleKeeper.targets` | Attaches the analyzer for one build and records completion. |
-| `build/Invoke-CSharpRuleKeeperHook.ps1` | Stop-hook adapter ([HOOKS.md](HOOKS.md)). |
-| `build/New-CodingAgentChangeReport.ps1` | Markdown/JSON report, deduplication, baselines. |
+| `build/CSharpRuleKeeper.targets` | Attaches the analyzer for one build, marks the build as standalone, and writes the completion markers. |
+| `build/Invoke-CSharpRuleKeeperHook.ps1` | Stop-hook adapter ([Hooks](HOOKS.md)). |
+| `build/New-CodingAgentChangeReport.ps1` | Markdown/JSON report, verdict and exit code, deduplication, baselines. |
 | `build/version.txt` | Single source of the tool version. |
-| `tests/` | Analyzer unit tests. `build/Test-*.ps1` hold script contract tests. |
+| `tests/` | Analyzer unit tests. `build/Test-*.ps1` hold the script contract tests. |
 
 ## What happens when a project is checked
 
-1. Resolve the analyzer DLL (bundle, or build `Release` from source).
-2. `dotnet format whitespace --verify-no-changes` (`-Fix` applies it).
-3. Build a temporary `CustomAfterMicrosoftCommonTargets` file that first imports each project's own extension (conditioned on that project's path, including every project of a solution) and then `CSharpRuleKeeper.targets`.
-4. Build the target with `--no-incremental` and the analyzer injected through global properties. The target's own SDK and TFMs are used. Nothing is added to its project files.
-5. Collect SARIF per project/TFM plus completion markers. Analysis is "completed" only when this evidence exists.
-6. Create the Markdown and JSON report.
+1. Validate arguments and output paths (exit 2 before anything is written).
+2. Resolve the analyzer DLL: the bundled one, `-AnalyzerPath`, or build `Release` from source.
+3. `dotnet format whitespace --verify-no-changes` (`-Fix` applies it).
+4. Write a temporary `CustomAfterMicrosoftCommonTargets` file that first imports each project's own extension (conditioned on that project's path, for every project of a solution) and then `CSharpRuleKeeper.targets`.
+5. Build the target with `--no-incremental` and the analyzer injected through global properties, with its own SDK and TFMs. Nothing is added to its project files. Error-severity findings are compiled as warnings that carry their policy severity, and HBCS IDs are excluded from warnings-as-errors, so dependent projects still compile.
+6. Every C# project/TFM build writes a `.started` marker and, after `CoreCompile`, a `.completed` marker. A build counts as analyzed only when its SARIF log contains the HBCS rules and no analyzer load failure; every other build is listed with a reason.
+7. Create the Markdown and JSON report, decide the verdict and exit with its code. The whole run shares one `-TimeoutSeconds` budget.
 
 ## Adding a rule
 
-1. Add the ID to `RuleIds.cs` (`HBCS` prefix; never change the meaning or severity of a published ID without a compatibility review).
-2. Add the descriptor to `RuleDefinitions.cs` (fields are `internal static readonly` named `s_camelCase`; the release-tracking analyzer needs fields). Messages carry the values needed to fix (actual lines, limit, identifier). New rules start as `warning`.
-3. Write the analyzer in the best folder; skip generated code (`GeneratedCodeAnalysisFlags.None`); add options in `AnalyzerOptionsReader` when needed.
+1. Add the ID to `RuleIds.cs` (`HBCS` prefix; never change the meaning or severity of a published ID without a compatibility review). IDs from 900 are reserved for configuration diagnostics.
+2. Add the descriptor to `RuleDefinitions.cs` (fields are `internal static readonly` named `s_camelCase`; the release-tracking analyzer needs fields). Messages carry the values needed to fix (actual lines, limit, identifier). New rules start as `warning`. A rule with a default `error` severity must report through `RuleSeverityPolicy`.
+3. Write the analyzer in the matching folder; skip generated code (`GeneratedCodeAnalysisFlags.None`); add options in `RuleOptions`/`AnalyzerOptionsReader` and their validation in `OptionValidator` when needed.
 4. Test passing, violating, exempt and boundary cases. Add the fix test if there is a Code Fix.
 5. Record it in `AnalyzerReleases.Unshipped.md`.
-6. Update `README.md`, `README_kr.md`, `docs/RULES.md`, `docs/ko/RULES.md`, `docs/CONFIGURATION.md` (and Korean), and `CHANGELOG.md`.
+6. Update `README.md`, `README_kr.md`, `docs/RULES.md`, `docs/ko/RULES.md`, `docs/CONFIGURATION.md` (and Korean), the fix caution in `New-CodingAgentChangeReport.ps1`, and `CHANGELOG.md`.
 7. Run the verification below.
 
 ## Verification
@@ -45,12 +48,12 @@ dotnet test
 .\build\run-quality-gate.ps1
 ```
 
-`run-quality-gate.ps1` also runs the external-project injection, failure classification, report contract, hook adapter and documentation link tests, and finally checks this repository with itself (`artifacts\self-check.md`, zero diagnostics required). It takes a few minutes. The agent completion hook of this repository calls only this script and never formats files without consent.
+`run-quality-gate.ps1` restores first, works from any current folder, and runs format, build and tests; then the external-project injection, failure classification, report contract, hook adapter and documentation link tests; and finally checks this repository with itself using `-FailOn info`, so even an info finding fails it (`artifacts\self-check.md`). It takes a few minutes. If you configure an agent's completion hook while working on this repository, let it call only this script, and never let it format files without consent.
 
 ## Release and tools
 
-- Version is `build/version.txt`; `Directory.Build.props` feeds it to the assemblies.
-- `build/Publish-CSharpRuleKeeperBundle.ps1` creates and verifies the release ZIP; see [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
-- `build/Measure-CSharpRuleKeeperPerformance.ps1 -Solution <path>` times repeated runs. Interpret with restore and incremental-build state in mind.
-- `CodeFixes.csproj` can produce a local NuGet package with `dotnet pack`; packages are not published.
+- The version is `build/version.txt`; `Directory.Build.props` feeds it to the assemblies.
+- `build/Publish-CSharpRuleKeeperBundle.ps1` creates and verifies the release ZIP ([release checklist](RELEASE_CHECKLIST.md)). The ZIP contains the analyzer DLL, the checker and hook scripts, `hooks/`, `docs/` without this page and the release checklist, `config/presets/`, the sample source, `README.md`, `README_kr.md`, `LICENSE`, `CHANGELOG.md` and `manifest.json`. Links to files that are not in the ZIP are rewritten to GitHub URLs inside the ZIP.
+- `build/Measure-CSharpRuleKeeperPerformance.ps1 -Solution <path>` times repeated runs. Interpret it with restore and build state in mind.
+- `dotnet pack src/CSharpRuleKeeper.CodeFixes -c Release` produces a local NuGet package with both DLLs; nothing is published to NuGet.
 - No CI workflow is maintained; the quality gate is run locally.

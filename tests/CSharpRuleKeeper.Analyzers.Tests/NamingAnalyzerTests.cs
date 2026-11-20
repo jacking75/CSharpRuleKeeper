@@ -130,6 +130,65 @@ public sealed class NamingAnalyzerTests
     }
 
     [Fact]
+    public async Task BooleanName_names_record_parameters_and_constants_like_propertiesAsync()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+
+            public sealed record Order(Int32 Id, Boolean IsPaid, IReadOnlyList<String> Lines);
+            public readonly record struct Flag(Boolean HasValue);
+
+            public sealed record Draft(Boolean IsPublished)
+            {
+                public Boolean IsPublished { get; init; } = IsPublished;
+            }
+
+            public sealed class Service(String name, Boolean isEnabled)
+            {
+                public const Boolean IsDebug = false;
+                const Boolean IsVerbose = true;
+                static readonly Boolean s_isWindows = OperatingSystem.IsWindows();
+
+                public String Describe() => $"{name} {isEnabled} {IsVerbose} {s_isWindows}";
+            }
+            """;
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new BooleanNameAnalyzer(),
+            source);
+
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public async Task BooleanName_keeps_ordinary_primary_constructor_parameters_camelCaseAsync()
+    {
+        const string source = """
+            using System;
+
+            public sealed record Order(Boolean Paid);
+
+            public sealed class Service(Boolean IsEnabled)
+            {
+                const Boolean Verbose = true;
+
+                public Boolean IsActive => IsEnabled && Verbose;
+            }
+            """;
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new BooleanNameAnalyzer(),
+            source);
+
+        string[] messages = diagnostics.Select(diagnostic => diagnostic.GetMessage()).ToArray();
+        Assert.Equal(3, messages.Length);
+        Assert.StartsWith("Boolean record parameter 'Paid' must start with one of: Is,", messages[0]);
+        Assert.StartsWith("Boolean parameter 'IsEnabled' must start with one of: is,", messages[1]);
+        Assert.StartsWith("Boolean field 'Verbose' must start with one of: Is,", messages[2]);
+    }
+
+    [Fact]
     public async Task CollectionName_accepts_plural_and_irregular_namesAsync()
     {
         const string source = """
@@ -209,6 +268,39 @@ public sealed class NamingAnalyzerTests
         Assert.Equal(3, diagnostics.Length);
         Assert.All(diagnostics, diagnostic => Assert.Equal(RuleIds.ExplicitPrivate, diagnostic.Id));
         Assert.All(diagnostics, diagnostic => Assert.Equal(DiagnosticSeverity.Info, diagnostic.Severity));
+    }
+
+    [Fact]
+    public async Task ExplicitPrivate_skips_private_that_changes_meaning_when_removedAsync()
+    {
+        const string source = """
+            using System;
+            using System.Text.RegularExpressions;
+
+            interface IShape
+            {
+                private Int32 Helper() => 0;
+            }
+
+            public class Shape
+            {
+                private protected Int32 _sides;
+            }
+
+            static partial class Patterns
+            {
+                [GeneratedRegex("^[a-z]+$")]
+                private static partial Regex WordRegex();
+
+                private partial class Nested { }
+            }
+            """;
+
+        var diagnostics = await AnalyzerTestHarness.GetDiagnosticsAsync(
+            new ExplicitPrivateAnalyzer(),
+            source);
+
+        Assert.Contains("'Nested'", Assert.Single(diagnostics).GetMessage());
     }
 
     [Fact]

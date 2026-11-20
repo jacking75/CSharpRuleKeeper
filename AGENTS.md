@@ -60,14 +60,13 @@ dotnet test
 
 ## 에이전트 훅
 
-- 작업 완료 훅은 `build/run-quality-gate.ps1`만 호출하도록 유지한다.
+- 이 저장소에는 에이전트 훅 설정이 포함되어 있지 않다. 이 저장소 작업용으로 작업 완료 훅을 설정한다면 `build/run-quality-gate.ps1`만 호출하게 한다.
 - 훅은 기본적으로 검증만 한다. 사용자 동의 없이 훅에서 작업 트리를 자동 포맷하거나 파일을 대량 변경하지 않는다.
 - 훅 실패 시 에이전트는 오류 출력의 HBCS 진단 위치를 수정한 뒤 최대 세 번 재검증한다.
 - 품질 게이트 통과만을 위해 public API, 직렬화 계약, 외부 프로토콜 문자열을 변경하지 않는다.
-- 대상 프로젝트용 훅 어댑터는 `build/Invoke-CSharpRuleKeeperHook.ps1`이며(`docs/HOOKS.md`), 이 저장소 개발용 훅과는 별개다.
+- 대상 프로젝트용 훅 어댑터는 `build/Invoke-CSharpRuleKeeperHook.ps1`이며(`docs/HOOKS.md`), 위의 저장소 작업용 훅과는 별개다.
 
 ## 문서화
 
 - 사용자에게 보이는 동작 또는 규칙을 추가·변경하면 `README.md`, `README_kr.md`, `docs/`(영어), `docs/ko/`(한국어)를 함께 갱신한다.
 - build PowerShell 스크립트의 동작이나 매개변수를 바꾸면 README와 `docs/GETTING_STARTED.md`·`docs/HOOKS.md`(및 `docs/ko/`)의 스크립트·명령 설명도 함께 갱신한다.
-- 완료한 사용자 요청은 `working_log.md` 상단에 KST 기준 실제 시각, 제목, 3~5줄 개요로 기록한다.

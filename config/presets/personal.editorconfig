@@ -1,7 +1,9 @@
 root = true
 
 [*.{cs,csx}]
-dotnet_diagnostic.HBCS001.severity = error
+# HBCS001, HBCS014 and the error tiers of HBCS006, HBCS007 and HBCS015 are errors by default, so they are not
+# listed. An explicit "= error" would make the standalone checker stop compiling a project that violates them
+# (see docs/CONFIGURATION.md, "Severities under the checker").
 dotnet_diagnostic.HBCS002.severity = warning
 dotnet_diagnostic.HBCS003.severity = warning
 dotnet_diagnostic.HBCS004.severity = warning

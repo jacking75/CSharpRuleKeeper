@@ -11,9 +11,6 @@ namespace CSharpRuleKeeper.Analyzers.Maintainability;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class MethodLengthAnalyzer : DiagnosticAnalyzer
 {
-    const Int32 DefaultWarningLimit = 30;
-    const Int32 DefaultErrorLimit = 100;
-
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(
             RuleDefinitions.s_methodLengthWarning,
@@ -45,10 +42,7 @@ public sealed class MethodLengthAnalyzer : DiagnosticAnalyzer
         (Int32 Warning, Int32 Error) limits = AnalyzerOptionsReader.GetLimits(
             context.Options,
             declaration.SyntaxTree,
-            "method_lines_warning",
-            "method_lines_error",
-            DefaultWarningLimit,
-            DefaultErrorLimit);
+            RuleOptions.s_methodLines);
 
         DiagnosticDescriptor? descriptor = AnalysisUtilities.SelectLengthDescriptor(
             lineCount,
@@ -60,9 +54,10 @@ public sealed class MethodLengthAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        context.ReportDiagnostic(Diagnostic.Create(
+        context.ReportDiagnostic(RuleSeverityPolicy.Create(
             descriptor,
             GetReportLocation(declaration),
+            context,
             AnalysisUtilities.GetDeclarationName(declaration),
             lineCount,
             AnalysisUtilities.GetExceededLimit(descriptor, limits)));

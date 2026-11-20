@@ -1,39 +1,42 @@
-# 유지보수자 가이드
+# 유지보수 안내
 
 [English](../MAINTAINERS.md) | [릴리스 체크리스트](RELEASE_CHECKLIST.md) | [규칙](RULES.md)
 
+도구 자체를 바꾸는 사람을 위한 문서다. 릴리스 ZIP에는 들어가지 않는다.
+
 ## 개요
 
-CSharpRuleKeeper는 서식과 의미 기반 린트를 분리한다. `dotnet format whitespace`는 공백만 검사하거나 고친다. Roslyn Analyzer는 의미 정보가 필요한 것(public 필드, 이름, 메서드 길이)을 검사한다. API, 저장 형식, 실행 순서를 바꿀 수 있는 코드는 자동으로 고치지 않는다.
+CSharpRuleKeeper는 서식과 의미 기반 린트를 분리한다. `dotnet format whitespace`는 공백만 검사하거나 고친다. Roslyn Analyzer는 의미 정보가 필요한 것(public 필드, 이름, 메서드 길이)을 검사한다. API, 저장 형식, 실행 순서를 바꿀 수 있는 코드는 절대 자동으로 고치지 않는다.
 
 | 경로 | 책임 |
 | --- | --- |
-| `src/CSharpRuleKeeper.Analyzers` | 규칙 ID, 메시지, Analyzer (`netstandard2.0`). |
-| `src/CSharpRuleKeeper.CodeFixes` | 안전함이 입증된 수정. 현재는 `nameof`(HBCS004)뿐이다. |
-| `build/Invoke-CSharpRuleKeeper.ps1` | 다른 프로젝트를 위한 검사기. 대상을 수정하지 않는다. |
-| `build/CSharpRuleKeeper.targets` | 한 번의 빌드 동안 Analyzer를 연결하고 완료를 기록한다. |
-| `build/Invoke-CSharpRuleKeeperHook.ps1` | Stop 훅 어댑터([HOOKS.md](HOOKS.md)). |
-| `build/New-CodingAgentChangeReport.ps1` | Markdown/JSON 보고서, 중복 제거, 기준선. |
-| `build/version.txt` | 도구 버전의 단일 출처. |
-| `tests/` | Analyzer 단위 테스트. `build/Test-*.ps1`은 스크립트 계약 테스트를 담는다. |
+| `src/CSharpRuleKeeper.Analyzers` | 규칙 ID, 메시지, Analyzer(`netstandard2.0`. SDK 8.0.100 이상이 불러올 수 있도록 Microsoft.CodeAnalysis 4.8.0 기준으로 빌드). |
+| `src/CSharpRuleKeeper.CodeFixes` | 안전성이 증명된 수정(현재 `nameof`, HBCS004뿐)과 NuGet 패키지 정의. |
+| `build/Invoke-CSharpRuleKeeper.ps1` | 다른 프로젝트용 검사기. 대상을 수정하지 않는다. |
+| `build/CSharpRuleKeeper.targets` | 한 번의 빌드에 Analyzer를 붙이고, 빌드를 독립 실행으로 표시하고, 완료 marker를 쓴다. |
+| `build/Invoke-CSharpRuleKeeperHook.ps1` | Stop 훅 어댑터([훅](HOOKS.md)). |
+| `build/New-CodingAgentChangeReport.ps1` | Markdown·JSON 보고서, 판정과 종료 코드, 중복 제거, 기준선. |
+| `build/version.txt` | 도구 버전의 단일 소스. |
+| `tests/` | Analyzer 단위 테스트. `build/Test-*.ps1`에는 스크립트 계약 테스트가 있다. |
 
 ## 프로젝트를 검사할 때 일어나는 일
 
-1. Analyzer DLL을 확인한다(번들, 또는 소스에서 `Release` 빌드).
-2. `dotnet format whitespace --verify-no-changes`를 실행한다(`-Fix`는 적용까지 한다).
-3. 임시 `CustomAfterMicrosoftCommonTargets` 파일을 만든다. 이 파일은 먼저 각 프로젝트 자체의 확장을 가져오고(해당 프로젝트 경로를 조건으로 하며, 솔루션의 모든 프로젝트를 포함한다), 그다음 `CSharpRuleKeeper.targets`를 가져온다.
-4. 대상을 `--no-incremental`로 빌드하며 Analyzer는 전역 속성으로 주입한다. 대상 자체의 SDK와 TFM을 사용한다. 프로젝트 파일에는 아무것도 추가하지 않는다.
-5. 프로젝트/TFM별 SARIF와 완료 표식을 수집한다. 이 증거가 있을 때만 분석이 "완료"된 것이다.
-6. Markdown과 JSON 보고서를 만든다.
+1. 인수와 출력 경로를 검증한다(무엇이든 쓰기 전에 종료 코드 2).
+2. Analyzer DLL을 정한다. 번들 DLL, `-AnalyzerPath`, 또는 소스에서 `Release`로 빌드한 것.
+3. `dotnet format whitespace --verify-no-changes`(`-Fix`이면 적용).
+4. 각 프로젝트 자체의 확장을 먼저(그 프로젝트 경로를 조건으로, 솔루션의 모든 프로젝트에 대해) 가져오고 그다음 `CSharpRuleKeeper.targets`를 가져오는 임시 `CustomAfterMicrosoftCommonTargets` 파일을 쓴다.
+5. 전역 속성으로 Analyzer를 주입하고 `--no-incremental`로 대상의 자체 SDK와 TFM을 써서 빌드한다. 대상의 프로젝트 파일에는 아무것도 추가하지 않는다. error 심각도 진단은 정책 심각도를 담은 warning으로 컴파일하고 HBCS ID는 warnings-as-errors에서 빼므로, 의존 프로젝트도 컴파일된다.
+6. 모든 C# 프로젝트/TFM 빌드는 `.started` marker를 쓰고, `CoreCompile` 뒤에 `.completed` marker를 쓴다. SARIF 로그에 HBCS 규칙이 있고 Analyzer 로드 실패가 없을 때만 그 빌드를 분석된 것으로 보며, 나머지 빌드는 이유와 함께 나열한다.
+7. Markdown과 JSON 보고서를 만들고, 판정을 내리고, 그 코드로 끝난다. 실행 전체가 `-TimeoutSeconds` 예산 하나를 나눠 쓴다.
 
 ## 규칙 추가
 
-1. `RuleIds.cs`에 ID를 추가한다(`HBCS` 접두사. 공개한 ID의 의미나 심각도는 호환성 검토 없이 바꾸지 않는다).
-2. `RuleDefinitions.cs`에 descriptor를 추가한다(필드는 `s_camelCase` 이름의 `internal static readonly`이며, 릴리스 추적 Analyzer가 필드를 필요로 한다). 메시지에는 수정에 필요한 값(실제 줄 수, 한계, 식별자)을 담는다. 새 규칙은 `warning`으로 시작한다.
-3. 가장 적합한 폴더에 Analyzer를 작성한다. 생성 코드는 건너뛴다(`GeneratedCodeAnalysisFlags.None`). 필요하면 `AnalyzerOptionsReader`에 옵션을 추가한다.
-4. 통과, 위반, 예외, 경계 사례를 테스트한다. Code Fix가 있으면 수정 테스트를 추가한다.
+1. `RuleIds.cs`에 ID를 추가한다(`HBCS` 접두사. 공개한 ID의 의미나 심각도는 호환성 검토 없이 바꾸지 않는다). 900번대는 설정 진단용으로 남겨 둔다.
+2. `RuleDefinitions.cs`에 descriptor를 추가한다(필드는 `internal static readonly`이며 이름은 `s_camelCase`. 릴리스 추적 Analyzer가 필드를 요구한다). 메시지에는 고치는 데 필요한 값(실제 줄 수, 한계, 식별자)을 넣는다. 새 규칙은 `warning`으로 시작한다. 기본 심각도가 `error`인 규칙은 `RuleSeverityPolicy`를 거쳐 보고해야 한다.
+3. 알맞은 폴더에 Analyzer를 작성한다. 생성 코드는 건너뛰고(`GeneratedCodeAnalysisFlags.None`), 필요하면 `RuleOptions`/`AnalyzerOptionsReader`에 옵션을, `OptionValidator`에 그 검증을 추가한다.
+4. 통과, 위반, 예외, 경계 사례를 테스트한다. Code Fix가 있으면 수정 테스트도 추가한다.
 5. `AnalyzerReleases.Unshipped.md`에 기록한다.
-6. `README.md`, `README_kr.md`, `docs/RULES.md`, `docs/ko/RULES.md`, `docs/CONFIGURATION.md`(와 한국어판), `CHANGELOG.md`를 갱신한다.
+6. `README.md`, `README_kr.md`, `docs/RULES.md`, `docs/ko/RULES.md`, `docs/CONFIGURATION.md`(와 한국어), `New-CodingAgentChangeReport.ps1`의 수정 주의 문구, `CHANGELOG.md`를 갱신한다.
 7. 아래 검증을 실행한다.
 
 ## 검증
@@ -45,12 +48,12 @@ dotnet test
 .\build\run-quality-gate.ps1
 ```
 
-`run-quality-gate.ps1`은 외부 프로젝트 주입, 실패 분류, 보고서 계약, 훅 어댑터, 문서 링크 테스트도 실행하고, 마지막으로 이 저장소를 자기 자신으로 검사한다(`artifacts\self-check.md`, 진단 0개 필수). 몇 분이 걸린다. 이 저장소의 에이전트 완료 훅은 이 스크립트만 호출하며 동의 없이 파일을 포맷하지 않는다.
+`run-quality-gate.ps1`은 먼저 복원하고, 어느 현재 폴더에서든 동작하며, 서식 검사·빌드·테스트를 실행한다. 이어서 외부 프로젝트 주입, 실패 분류, 보고서 계약, 훅 어댑터, 문서 링크 테스트를 실행하고, 마지막으로 `-FailOn info`로 이 저장소를 도구 자신으로 검사하므로 info 진단 하나도 실패가 된다(`artifacts\self-check.md`). 몇 분 걸린다. 이 저장소 작업에 에이전트의 작업 완료 훅을 설정한다면 이 스크립트만 호출하게 하고, 동의 없이 파일을 포맷하게 하지 않는다.
 
 ## 릴리스와 도구
 
-- 버전은 `build/version.txt`이며, `Directory.Build.props`가 이를 어셈블리에 전달한다.
-- `build/Publish-CSharpRuleKeeperBundle.ps1`은 릴리스 ZIP을 만들고 검증한다. [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)를 참고한다.
-- `build/Measure-CSharpRuleKeeperPerformance.ps1 -Solution <path>`는 반복 실행 시간을 측정한다. 복원과 증분 빌드 상태를 감안해 해석한다.
-- `CodeFixes.csproj`는 `dotnet pack`으로 로컬 NuGet 패키지를 만들 수 있다. 패키지는 게시하지 않는다.
-- CI 워크플로는 유지하지 않는다. 품질 게이트는 로컬에서 실행한다.
+- 버전은 `build/version.txt`이며 `Directory.Build.props`가 어셈블리에 넘긴다.
+- `build/Publish-CSharpRuleKeeperBundle.ps1`이 릴리스 ZIP을 만들고 검증한다([릴리스 체크리스트](RELEASE_CHECKLIST.md)). ZIP에는 Analyzer DLL, 검사기와 훅 스크립트, `hooks/`, 이 문서와 릴리스 체크리스트를 뺀 `docs/`, `config/presets/`, 샘플 소스, `README.md`, `README_kr.md`, `LICENSE`, `CHANGELOG.md`, `manifest.json`이 들어간다. ZIP에 없는 파일로 가는 링크는 ZIP 안에서 GitHub URL로 바꾼다.
+- `build/Measure-CSharpRuleKeeperPerformance.ps1 -Solution <path>`은 반복 실행 시간을 잰다. 복원과 빌드 상태를 고려해 해석한다.
+- `dotnet pack src/CSharpRuleKeeper.CodeFixes -c Release`는 두 DLL이 든 로컬 NuGet 패키지를 만든다. NuGet에는 아무것도 게시하지 않는다.
+- CI 워크플로는 유지하지 않으며 품질 게이트는 로컬에서 실행한다.

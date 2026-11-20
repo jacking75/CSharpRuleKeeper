@@ -4,16 +4,49 @@ param()
 $ErrorActionPreference = "Stop"
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) "CSharpRuleKeeper-report-$([Guid]::NewGuid().ToString('N'))"
 $reportScript = Join-Path $PSScriptRoot "New-CodingAgentChangeReport.ps1"
+$statusByExitCode = @{ 0 = "passed"; 1 = "failed"; 2 = "failed" }
 
-function Assert-Report([string]$Name, [Int32]$BuildExitCode, [string]$FormatStatus, [string]$AnalysisStatus, [string[]]$Lines, [Int32]$ExpectedDiagnostics, [bool]$ExpectedCompleted)
+function Invoke-Report([string]$Name, [string[]]$Lines, [hashtable]$Extra = @{})
 {
-    $markdownPath = Join-Path $testRoot "$Name.md"
-    $jsonPath = Join-Path $testRoot "$Name.json"
-    & $reportScript -BuildOutput $Lines -OutputPath $markdownPath -JsonOutputPath $jsonPath -Target "Fixture.csproj" -BuildExitCode $BuildExitCode -FormatStatus $FormatStatus -AnalysisStatus $AnalysisStatus
-    $result = Get-Content -LiteralPath $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($result.totalDiagnostics -ne $ExpectedDiagnostics) { throw "$Name diagnostic count differs." }
-    if ($result.analysisCompleted -ne $ExpectedCompleted) { throw "$Name analysis completion state differs." }
-    if ($BuildExitCode -ne 0 -and $result.status -ne "failed") { throw "$Name failure status was not preserved." }
+    $arguments = @{
+        BuildOutput = $Lines
+        OutputPath = (Join-Path $testRoot "$Name.md")
+        JsonOutputPath = (Join-Path $testRoot "$Name.json")
+        Target = "C:\src\Fixture.csproj"
+        BuildExitCode = 0
+        FormatStatus = "passed"
+        AnalysisStatus = "passed"
+    }
+    foreach ($key in $Extra.Keys) { $arguments[$key] = $Extra[$key] }
+    $null = & $reportScript @arguments
+    return Get-Content -LiteralPath (Join-Path $testRoot "$Name.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+function Assert-Verdict([string]$Name, $Result, [Int32]$ExpectedExitCode, [Int32]$ExpectedDiagnostics)
+{
+    if ($Result.exitCode -ne $ExpectedExitCode) { throw "${Name}: exit code $($Result.exitCode), expected $ExpectedExitCode." }
+    if ($Result.status -ne $statusByExitCode[$ExpectedExitCode]) { throw "${Name}: status '$($Result.status)' does not agree with exit code $ExpectedExitCode." }
+    if ($Result.totalDiagnostics -ne $ExpectedDiagnostics) { throw "${Name}: $($Result.totalDiagnostics) diagnostics, expected $ExpectedDiagnostics." }
+}
+
+function New-Sarif([string]$Name, [object[]]$Results)
+{
+    $path = Join-Path $testRoot "$Name-net10.0-Debug.sarif"
+    @{ runs = @(@{ results = $Results }) } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $path -Encoding UTF8
+    return $path
+}
+
+function New-SarifResult([string]$RuleId, [string]$Level, [Int32]$Line, [hashtable]$Properties, [object[]]$Suppressions)
+{
+    $result = @{
+        ruleId = $RuleId
+        level = $Level
+        message = @{ text = "$RuleId message" }
+        locations = @(@{ physicalLocation = @{ artifactLocation = @{ uri = "file:///C:/src/File.cs" }; region = @{ startLine = $Line; startColumn = 1 } } })
+    }
+    if ($Properties) { $result.properties = $Properties }
+    if ($Suppressions) { $result.suppressions = $Suppressions }
+    return $result
 }
 
 try
@@ -21,40 +54,58 @@ try
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     $errorLine = "C:\src\File.cs(1,2): error HBCS001: Public field 'Value' must be replaced"
     $warningLine = "C:\src\File.cs(2,3): warning HBCS002: Boolean property 'Ready' must start with Is"
-    Assert-Report "build-failure-no-hbcs" 1 "passed" "failed" @("MSBuild failed") 0 $false
-    Assert-Report "hbcs-error" 1 "passed" "passed" @($errorLine) 1 $true
-    Assert-Report "warning-only" 0 "passed" "passed" @($warningLine) 1 $true
-    Assert-Report "clean-success" 0 "passed" "passed" @() 0 $true
-    Assert-Report "analyzer-build-failure" 2 "notRun" "failed" @("Analyzer build failed") 0 $false
-    Assert-Report "unknown-log" -1 "unknown" "unknown" @("historical output") 0 $false
+    $infoLine = "C:\src\File.cs(3,1): info HBCS008: Private modifier on field '_x' should be omitted"
+    $trailingLine = "C:\src\File.cs({0},20): warning HBCS009: Trailing comment must be moved to its own line"
+    $configurationLine = "C:\src\File.cs(1,1): warning HBCS900: Option 'personal_csharp_rules.max_line_length' has invalid value 'wide'"
 
-    $sarifPath = Join-Path $testRoot "Fixture-net10.0-Debug.sarif"
-    $sarifJson = @{
-        runs = @(@{
-            results = @(@{
-                ruleId = "HBCS001"
-                level = "error"
-                message = @{ text = "Public field 'Value' must be replaced" }
-                locations = @(@{ physicalLocation = @{ artifactLocation = @{ uri = "file:///C:/src/File.cs" }; region = @{ startLine = 1; startColumn = 2 } } })
-            })
-        })
-    } | ConvertTo-Json -Depth 10
-    Set-Content -LiteralPath $sarifPath -Value $sarifJson -Encoding UTF8
-    & $reportScript -BuildOutput @($errorLine) -SarifPaths $sarifPath -OutputPath (Join-Path $testRoot "dedupe.md") -JsonOutputPath (Join-Path $testRoot "dedupe.json") -Target "C:\src\Fixture.csproj" -BuildExitCode 1 -FormatStatus passed -AnalysisStatus passed
-    $dedupe = Get-Content -LiteralPath (Join-Path $testRoot "dedupe.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($dedupe.totalDiagnostics -ne 1) { throw "The same diagnostic from SARIF and console output was counted $($dedupe.totalDiagnostics) times." }
+    # The JSON status and the exit code always agree, whatever the severity mix.
+    Assert-Verdict "clean" (Invoke-Report "clean" @()) 0 0
+    Assert-Verdict "warning-only" (Invoke-Report "warning-only" @($warningLine)) 1 1
+    Assert-Verdict "info-only" (Invoke-Report "info-only" @($infoLine)) 0 1
+    Assert-Verdict "info-only-fail-on-info" (Invoke-Report "info-only-fail-on-info" @($infoLine) @{ FailOn = "info" }) 1 1
+    Assert-Verdict "warning-fail-on-error" (Invoke-Report "warning-fail-on-error" @($warningLine) @{ FailOn = "error" }) 0 1
+    Assert-Verdict "error" (Invoke-Report "error" @($errorLine) @{ BuildExitCode = 1 }) 1 1
+    Assert-Verdict "configuration-only" (Invoke-Report "configuration-only" @($configurationLine)) 0 1
+    Assert-Verdict "build-failure-no-hbcs" (Invoke-Report "build-failure-no-hbcs" @("MSBuild failed") @{ BuildExitCode = 1; AnalysisStatus = "failed"; ExecutionErrors = @("CS0246: missing type") }) 2 0
+    Assert-Verdict "format-tool-error" (Invoke-Report "format-tool-error" @() @{ FormatStatus = "failed"; FormatFailureKind = "toolError" }) 2 0
+    Assert-Verdict "format-differences" (Invoke-Report "format-differences" @() @{ FormatStatus = "failed"; FormatFailureKind = "differences" }) 1 0
+    $belowThreshold = Invoke-Report "below-threshold" @($errorLine, $infoLine)
+    if (@($belowThreshold.diagnostics | Where-Object { $_.ruleId -eq "HBCS008" -and -not $_.affectsVerdict }).Count -ne 1) { throw "A diagnostic below -FailOn is not marked as not affecting the verdict." }
+    if ((Get-Content -LiteralPath (Join-Path $testRoot "below-threshold.md") -Raw -Encoding UTF8) -notmatch "below -FailOn warning") { throw "The Markdown report does not mark diagnostics below -FailOn." }
 
+    # Baselines are a multiset: one stored trailing comment does not cover a second identical one.
     $baselinePath = Join-Path $testRoot "baseline.json"
-    & $reportScript -BuildOutput @($errorLine) -OutputPath (Join-Path $testRoot "baseline-create.md") -JsonOutputPath (Join-Path $testRoot "baseline-create.json") -Target "Fixture.csproj" -BuildExitCode 1 -FormatStatus passed -AnalysisStatus passed -BaselinePath $baselinePath -CreateBaseline
+    $created = Invoke-Report "baseline-create" @($errorLine, ($trailingLine -f 5)) @{ BaselinePath = $baselinePath; CreateBaseline = $true }
+    Assert-Verdict "baseline-create" $created 0 2
     $shiftedErrorLine = "C:\src\File.cs(20,2): error HBCS001: Public field 'Value' must be replaced"
-    & $reportScript -BuildOutput @($shiftedErrorLine, $warningLine) -OutputPath (Join-Path $testRoot "baseline-check.md") -JsonOutputPath (Join-Path $testRoot "baseline-check.json") -Target "Fixture.csproj" -BuildExitCode 1 -FormatStatus passed -AnalysisStatus passed -BaselinePath $baselinePath
-    $baselineResult = Get-Content -LiteralPath (Join-Path $testRoot "baseline-check.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($baselineResult.baseline.existing -ne 1 -or $baselineResult.baseline.new -ne 1) { throw "Baseline new/existing classification differs." }
+    Assert-Verdict "baseline-existing-only" (Invoke-Report "baseline-existing" @($shiftedErrorLine, ($trailingLine -f 9)) @{ BaselinePath = $baselinePath }) 0 2
+    $withNew = Invoke-Report "baseline-new" @($shiftedErrorLine, ($trailingLine -f 9), ($trailingLine -f 12)) @{ BaselinePath = $baselinePath }
+    Assert-Verdict "baseline-with-new" $withNew 1 3
+    if ($withNew.baseline.new -ne 1 -or $withNew.baseline.existing -ne 2) { throw "Baseline counts differ: new $($withNew.baseline.new), existing $($withNew.baseline.existing)." }
+    if (@($withNew.diagnostics | Where-Object { $_.isNew }).Count -ne 1) { throw "Exactly one diagnostic must be marked new." }
+
+    # Baseline files written by the previous format (one fingerprint per diagnostic) are still read.
+    $legacyPath = Join-Path $testRoot "legacy-baseline.json"
+    $legacyFingerprint = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes("HBCS001|File.cs|Public field 'Value' must be replaced"))).Replace("-", "").ToLowerInvariant()
+    @{ schemaVersion = 1; fingerprints = @($legacyFingerprint) } | ConvertTo-Json | Set-Content -LiteralPath $legacyPath -Encoding UTF8
+    Assert-Verdict "legacy-baseline" (Invoke-Report "legacy-baseline" @($errorLine) @{ BaselinePath = $legacyPath }) 0 1
+
+    # SARIF: the policy severity carried by a downgraded finding wins, "note" is info, suppressed results are skipped,
+    # and errors sort before infos.
+    $sarifPath = New-Sarif "Fixture" @(
+        (New-SarifResult "HBCS008" "note" 3 $null $null),
+        (New-SarifResult "HBCS001" "warning" 1 @{ customProperties = @{ policySeverity = "error" } } $null),
+        (New-SarifResult "HBCS002" "warning" 2 $null @(@{ kind = "inSource" }))
+    )
+    $sarifResult = Invoke-Report "sarif" @($errorLine) @{ SarifPaths = @($sarifPath) }
+    Assert-Verdict "sarif" $sarifResult 1 2
+    if ($sarifResult.diagnostics[0].ruleId -ne "HBCS001" -or $sarifResult.diagnostics[0].severity -ne "error") { throw "The SARIF policy severity was not restored or errors do not sort first." }
+    if ($sarifResult.diagnostics[1].severity -ne "info") { throw "SARIF level 'note' was reported as '$($sarifResult.diagnostics[1].severity)', expected info." }
 
     $blockedParent = Join-Path $testRoot "blocked-parent"
     Set-Content -LiteralPath $blockedParent -Value "file" -Encoding UTF8
     $ErrorActionPreference = "Continue"
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $reportScript -OutputPath (Join-Path $blockedParent "report.md") -JsonOutputPath (Join-Path $testRoot "blocked.json") -Target "Fixture.csproj" -BuildExitCode 0 -FormatStatus passed -AnalysisStatus passed 2>$null
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $reportScript -OutputPath (Join-Path $blockedParent "report.md") -JsonOutputPath (Join-Path $testRoot "blocked.json") -Target "Fixture.csproj" -BuildExitCode 0 -FormatStatus passed -AnalysisStatus passed 2>$null | Out-Null
     $writeFailureExitCode = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
     if ($writeFailureExitCode -ne 2) { throw "Report save failure exit code was $writeFailureExitCode, expected 2." }

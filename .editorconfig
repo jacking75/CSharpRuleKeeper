@@ -16,7 +16,7 @@ csharp_prefer_braces = true:error
 csharp_preserve_single_line_blocks = false
 csharp_preserve_single_line_statements = false
 
-dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion
+dotnet_style_require_accessibility_modifiers = omit_if_default:suggestion
 
 # private/internal 필드의 _, s_, t_ 구분은 HBCS014가 특성까지 확인해 적용한다.
 

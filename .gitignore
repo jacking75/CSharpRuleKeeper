@@ -428,5 +428,3 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# CSharpRuleKeeper: git으로 관리하지 않는 계획 문서
-공개준비-구현계획-*.md

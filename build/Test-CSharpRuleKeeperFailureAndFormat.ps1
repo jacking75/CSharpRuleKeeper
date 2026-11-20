@@ -17,6 +17,8 @@ function Invoke-CheckerProcess([string[]]$Arguments)
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+    $startInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     try
@@ -35,28 +37,94 @@ function Invoke-CheckerProcess([string[]]$Arguments)
     }
 }
 
+function Read-Result([string]$Name)
+{
+    return Get-Content -LiteralPath (Join-Path $fixtureRoot "$Name.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+function Get-CheckArguments([string]$Target, [string]$Name)
+{
+    return @("-Solution", $Target, "-AnalyzerPath", $analyzerPath, "-OutputPath", (Join-Path $fixtureRoot "$Name.md"), "-JsonOutputPath", (Join-Path $fixtureRoot "$Name.json"))
+}
+
 try
 {
-    New-Item -ItemType Directory -Path $fixtureRoot | Out-Null
+    $singleRoot = Join-Path $fixtureRoot "single"
+    New-Item -ItemType Directory -Path $singleRoot -Force | Out-Null
+    $project = Join-Path $singleRoot "Fixture.csproj"
     "root = true`r`n`r`n[*.cs]`r`nindent_style = space`r`nindent_size = 4" | Set-Content -LiteralPath (Join-Path $fixtureRoot ".editorconfig") -Encoding UTF8
-    "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>" | Set-Content -LiteralPath (Join-Path $fixtureRoot "Fixture.csproj") -Encoding UTF8
-    & dotnet restore (Join-Path $fixtureRoot "Fixture.csproj") | Out-Host
+    "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>" | Set-Content -LiteralPath $project -Encoding UTF8
+    & dotnet restore $project | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "fixture restore failed" }
 
-    "sealed class Example`r`n{`r`n    MissingType Read() => null;`r`n}" | Set-Content -LiteralPath (Join-Path $fixtureRoot "Program.cs") -Encoding UTF8
-    $compileExitCode = Invoke-CheckerProcess @("-Solution", (Join-Path $fixtureRoot "Fixture.csproj"), "-AnalyzerPath", $analyzerPath, "-OutputPath", (Join-Path $fixtureRoot "compile-error.md"), "-JsonOutputPath", (Join-Path $fixtureRoot "compile-error.json"))
-    if ($compileExitCode -ne 2) { throw "Compile error exit code was $compileExitCode, expected 2." }
-    $compileError = Get-Content -LiteralPath (Join-Path $fixtureRoot "compile-error.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($compileError.analysisCompleted -or @($compileError.executionErrors | Where-Object { $_ -match "CS0246" }).Count -eq 0) { throw "Compile errors were not classified as an execution failure." }
+    # Argument problems exit with 2, not with the "violations" code 1, and nothing is written.
+    $argumentCases = @(
+        @("-Solution", $project, "-MaxDiagnostics", "0"),
+        @("-Solution", $project, "-Configuration", "Rel ease"),
+        @("-Solution", $project, "-Bogus", "value"),
+        @("-Solution", $project, "-CreateBaseline")
+    )
+    foreach ($case in $argumentCases)
+    {
+        $argumentExitCode = Invoke-CheckerProcess $case
+        if ($argumentExitCode -ne 2) { throw "Arguments '$($case -join ' ')' exited with $argumentExitCode, expected 2." }
+    }
 
-    "sealed class Example{void Run(){}}" | Set-Content -LiteralPath (Join-Path $fixtureRoot "Program.cs") -Encoding UTF8
-    $unformattedHash = (Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash
-    $formatExitCode = Invoke-CheckerProcess @("-Solution", (Join-Path $fixtureRoot "Fixture.csproj"), "-AnalyzerPath", $analyzerPath, "-OutputPath", (Join-Path $fixtureRoot "format-error.md"), "-JsonOutputPath", (Join-Path $fixtureRoot "format-error.json"))
-    if ($formatExitCode -ne 2) { throw "Format error exit code was $formatExitCode, expected 2." }
-    if ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash -ne $unformattedHash) { throw "The default check modified the source." }
-    $fixExitCode = Invoke-CheckerProcess @("-Solution", (Join-Path $fixtureRoot "Fixture.csproj"), "-AnalyzerPath", $analyzerPath, "-OutputPath", (Join-Path $fixtureRoot "format-fix.md"), "-JsonOutputPath", (Join-Path $fixtureRoot "format-fix.json"), "-Fix")
+    # A refused output path is never written, not even by the failure report.
+    $sourcePath = Join-Path $singleRoot "Program.cs"
+    "sealed class Example`r`n{`r`n}`r`n" | Set-Content -LiteralPath $sourcePath -Encoding UTF8
+    $sourceHash = (Get-FileHash -LiteralPath $sourcePath).Hash
+    $protectedExitCode = Invoke-CheckerProcess @("-Solution", $project, "-AnalyzerPath", $analyzerPath, "-OutputPath", $sourcePath)
+    if ($protectedExitCode -ne 2 -or (Get-FileHash -LiteralPath $sourcePath).Hash -ne $sourceHash) { throw "A protected -OutputPath was written or not refused (exit code $protectedExitCode)." }
+
+    # An analyzer that never runs must not be reported as a passed check.
+    $bogusAnalyzer = Join-Path $fixtureRoot "NotAnAnalyzer.dll"
+    "not an assembly" | Set-Content -LiteralPath $bogusAnalyzer -Encoding ASCII
+    $bogusArguments = Get-CheckArguments $project "no-analyzer"
+    $bogusArguments[3] = $bogusAnalyzer
+    $bogusExitCode = Invoke-CheckerProcess $bogusArguments
+    $bogus = Read-Result "no-analyzer"
+    if ($bogusExitCode -ne 2 -or $bogus.analysisCompleted -or $bogus.status -ne "failed") { throw "A run without the analyzer exited with $bogusExitCode (completed: $($bogus.analysisCompleted))." }
+
+    # A compile error in a referenced project: the error is reported with its location, and the dependent
+    # project that could not be compiled is listed instead of being silently left out.
+    $brokenRoot = Join-Path $fixtureRoot "broken"
+    New-Item -ItemType Directory -Path (Join-Path $brokenRoot "Lib"), (Join-Path $brokenRoot "App") -Force | Out-Null
+    "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>" | Set-Content -LiteralPath (Join-Path $brokenRoot "Lib\Lib.csproj") -Encoding UTF8
+    "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include=`"..\Lib\Lib.csproj`" /></ItemGroup></Project>" | Set-Content -LiteralPath (Join-Path $brokenRoot "App\App.csproj") -Encoding UTF8
+    "namespace Lib;`r`n`r`npublic sealed class Holder`r`n{`r`n    MissingType Read() => null;`r`n}`r`n" | Set-Content -LiteralPath (Join-Path $brokenRoot "Lib\Holder.cs") -Encoding UTF8
+    "namespace App;`r`n`r`nsealed class Worker`r`n{`r`n}`r`n" | Set-Content -LiteralPath (Join-Path $brokenRoot "App\Worker.cs") -Encoding UTF8
+    & dotnet restore (Join-Path $brokenRoot "App\App.csproj") | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "broken fixture restore failed" }
+    $compileExitCode = Invoke-CheckerProcess (Get-CheckArguments (Join-Path $brokenRoot "App\App.csproj") "compile-error")
+    $compileError = Read-Result "compile-error"
+    if ($compileExitCode -ne 2 -or $compileError.analysisCompleted) { throw "Compile error exit code was $compileExitCode, expected 2 with an incomplete analysis." }
+    if (@($compileError.buildErrors | Where-Object { $_.code -eq "CS0246" -and $_.path -match 'Holder\.cs$' -and $_.line -eq 5 }).Count -eq 0) { throw "The compile error lacks its file and line: $($compileError.buildErrors | ConvertTo-Json -Compress)" }
+    if (@($compileError.executionErrors | Where-Object { $_ -match '^Not analyzed: .*App\.csproj' }).Count -eq 0) { throw "The project that could not be compiled was not listed: $($compileError.executionErrors -join '; ')" }
+
+    # A non-HBCS analyzer error comes from the console (message with a help URL) and from SARIF (without it):
+    # each location is reported once, and two locations stay two errors.
+    $analyzerErrorRoot = Join-Path $fixtureRoot "analyzer-error"
+    New-Item -ItemType Directory -Path $analyzerErrorRoot | Out-Null
+    "[*.cs]`r`ndotnet_diagnostic.CA1822.severity = error" | Set-Content -LiteralPath (Join-Path $analyzerErrorRoot ".editorconfig") -Encoding UTF8
+    "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>" | Set-Content -LiteralPath (Join-Path $analyzerErrorRoot "Fixture.csproj") -Encoding UTF8
+    "namespace Fixture;`r`n`r`npublic sealed class Holder`r`n{`r`n    public System.Int32 First() { return 3; }`r`n`r`n    public System.Int32 Second() { return 4; }`r`n}`r`n" | Set-Content -LiteralPath (Join-Path $analyzerErrorRoot "Holder.cs") -Encoding UTF8
+    & dotnet restore (Join-Path $analyzerErrorRoot "Fixture.csproj") | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "analyzer error fixture restore failed" }
+    $null = Invoke-CheckerProcess (Get-CheckArguments (Join-Path $analyzerErrorRoot "Fixture.csproj") "analyzer-error")
+    $analyzerErrorLines = @((Read-Result "analyzer-error").buildErrors | Where-Object { $_.code -eq "CA1822" } | ForEach-Object { [Int32]$_.line })
+    if ((($analyzerErrorLines | Sort-Object) -join ",") -ne "5,7") { throw "CA1822 errors were not reported once per location (lines: $($analyzerErrorLines -join ','))." }
+
+    # Whitespace differences are violations (exit 1) and name the files; -Fix applies them.
+    "sealed class Example{void Run(){}}" | Set-Content -LiteralPath $sourcePath -Encoding UTF8
+    $unformattedHash = (Get-FileHash -LiteralPath $sourcePath).Hash
+    $formatExitCode = Invoke-CheckerProcess (Get-CheckArguments $project "format-error")
+    $formatError = Read-Result "format-error"
+    if ($formatExitCode -ne 1 -or $formatError.formatFailureKind -ne "differences" -or @($formatError.formatFiles | Where-Object { $_.path -eq "Program.cs" }).Count -ne 1) { throw "Whitespace differences gave exit code $formatExitCode, kind $($formatError.formatFailureKind), files $($formatError.formatFiles | ConvertTo-Json -Compress)." }
+    if ((Get-FileHash -LiteralPath $sourcePath).Hash -ne $unformattedHash) { throw "The default check modified the source." }
+    $fixExitCode = Invoke-CheckerProcess ((Get-CheckArguments $project "format-fix") + "-Fix")
     if ($fixExitCode -ne 0) { throw "The -Fix check failed with exit code $fixExitCode." }
-    if ((Get-FileHash -LiteralPath (Join-Path $fixtureRoot "Program.cs")).Hash -eq $unformattedHash) { throw "-Fix did not apply whitespace changes." }
+    if ((Get-FileHash -LiteralPath $sourcePath).Hash -eq $unformattedHash) { throw "-Fix did not apply whitespace changes." }
 
     # Doctor judges the target's SDK requirement, not the SDK needed to develop this tool.
     $doctorRoot = Join-Path $fixtureRoot "doctor"

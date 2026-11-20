@@ -1,0 +1,12 @@
+# The repository's .editorconfig requires CRLF and its own checks (dotnet format --verify-no-changes)
+# enforce it, so text files are checked out with CRLF on every Git configuration.
+* text=auto eol=crlf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.dll binary
+*.exe binary
+*.snk binary

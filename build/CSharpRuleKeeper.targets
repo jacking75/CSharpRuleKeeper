@@ -1,9 +1,15 @@
 <Project>
+  <!-- Imported only by Invoke-CSharpRuleKeeper.ps1 for one build; never referenced by the target project. -->
   <PropertyGroup>
-    <CSharpRuleKeeperResultFile Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">$(CSharpRuleKeeperResultsRoot)\$(MSBuildProjectName)-$(TargetFramework)-$(Configuration)-$([MSBuild]::StableStringHash('$(MSBuildProjectFullPath)')).sarif</CSharpRuleKeeperResultFile>
+    <CSharpRuleKeeperRunKey>$(MSBuildProjectName)-$(TargetFramework)-$(Configuration)-$([MSBuild]::StableStringHash('$(MSBuildProjectFullPath)'))</CSharpRuleKeeperRunKey>
+    <CSharpRuleKeeperResultFile Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">$(CSharpRuleKeeperResultsRoot)\$(CSharpRuleKeeperRunKey).sarif</CSharpRuleKeeperResultFile>
     <ErrorLog Condition="'$(CSharpRuleKeeperResultFile)' != ''">$(CSharpRuleKeeperResultFile),version=2.1</ErrorLog>
     <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
     <RunAnalyzers>true</RunAnalyzers>
+    <!-- Tells the analyzers that they run under the standalone runner: error-severity findings are then
+         reported as warnings carrying their policy severity, so they never stop dependent projects. -->
+    <CSharpRuleKeeperStandalone>true</CSharpRuleKeeperStandalone>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);HBCS001;HBCS002;HBCS003;HBCS004;HBCS005;HBCS006;HBCS007;HBCS008;HBCS009;HBCS010;HBCS011;HBCS012;HBCS013;HBCS014;HBCS015;HBCS900</WarningsNotAsErrors>
   </PropertyGroup>
 
   <Target Name="ValidateCSharpRuleKeeperAnalyzerPath"
@@ -15,12 +21,25 @@
   <ItemGroup>
     <Analyzer Include="$(CSharpRuleKeeperAnalyzerPath)"
               Condition="Exists('$(CSharpRuleKeeperAnalyzerPath)')" />
+    <CompilerVisibleProperty Include="IsTestProject" />
+    <CompilerVisibleProperty Include="CSharpRuleKeeperStandalone" />
   </ItemGroup>
+
+  <!-- Completion evidence: every C# project/TFM build that starts writes a .started marker, and one whose
+       compilation finished writes a .completed marker. The runner compares the two sets. -->
+  <Target Name="RecordCSharpRuleKeeperStart"
+          BeforeTargets="BeforeBuild"
+          Condition="'$(CSharpRuleKeeperResultsRoot)' != '' And '$(Language)' == 'C#'">
+    <WriteLinesToFile File="$(CSharpRuleKeeperResultsRoot)\$(CSharpRuleKeeperRunKey).started"
+                      Lines="$([MSBuild]::Escape('$(MSBuildProjectFullPath)'));$([MSBuild]::Escape('$(TargetFramework)'));$([MSBuild]::Escape('$(CSharpRuleKeeperResultFile)'))"
+                      Overwrite="true"
+                      Encoding="utf-8" />
+  </Target>
 
   <Target Name="RecordCSharpRuleKeeperAnalysis"
           AfterTargets="CoreCompile"
-          Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">
-    <WriteLinesToFile File="$(CSharpRuleKeeperResultsRoot)\$(MSBuildProjectName)-$(TargetFramework)-$(Configuration)-$([MSBuild]::StableStringHash('$(MSBuildProjectFullPath)')).completed"
+          Condition="'$(CSharpRuleKeeperResultsRoot)' != '' And '$(Language)' == 'C#'">
+    <WriteLinesToFile File="$(CSharpRuleKeeperResultsRoot)\$(CSharpRuleKeeperRunKey).completed"
                       Lines="completed"
                       Overwrite="true" />
   </Target>

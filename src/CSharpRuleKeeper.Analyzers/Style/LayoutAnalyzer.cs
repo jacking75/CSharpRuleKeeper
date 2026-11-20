@@ -4,6 +4,7 @@ using System.Linq;
 using CSharpRuleKeeper.Analyzers.Infrastructure;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 
@@ -12,8 +13,6 @@ namespace CSharpRuleKeeper.Analyzers.Style;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class LayoutAnalyzer : DiagnosticAnalyzer
 {
-    const Int32 DefaultMaximumLineLength = 120;
-
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
         ImmutableArray.Create(
             RuleDefinitions.s_trailingComment,
@@ -40,7 +39,7 @@ public sealed class LayoutAnalyzer : DiagnosticAnalyzer
         SyntaxNode root = context.Tree.GetRoot(context.CancellationToken);
         foreach (SyntaxTrivia trivia in root.DescendantTrivia(descendIntoTrivia: true))
         {
-            if (!trivia.IsKind(SyntaxKind.SingleLineCommentTrivia))
+            if (!trivia.IsKind(SyntaxKind.SingleLineCommentTrivia) || IsDirectiveComment(trivia))
             {
                 continue;
             }
@@ -58,12 +57,24 @@ public sealed class LayoutAnalyzer : DiagnosticAnalyzer
         }
     }
 
+    // "#endif // DEBUG" and "#pragma warning disable HBCS005 // reason": a directive line cannot
+    // take a comment on the line above without losing what the comment refers to.
+    static bool IsDirectiveComment(SyntaxTrivia trivia)
+    {
+        return trivia.Token.Parent?.FirstAncestorOrSelf<DirectiveTriviaSyntax>(ascendOutOfTrivia: false) is not null;
+    }
+
     static void AnalyzeBlankLines(SyntaxTreeAnalysisContext context, SourceText text)
     {
         ImmutableArray<TextSpan> literalSpans = GetMultiLineLiteralSpans(context);
         bool isPreviousLineBlank = false;
         foreach (TextLine line in text.Lines)
         {
+            if (AnalysisUtilities.IsAfterFinalLineBreak(text, line))
+            {
+                break;
+            }
+
             bool isBlank = string.IsNullOrWhiteSpace(line.ToString()) && !IsInsideAny(literalSpans, line.Span);
             if (isBlank && isPreviousLineBlank)
             {
@@ -98,11 +109,11 @@ public sealed class LayoutAnalyzer : DiagnosticAnalyzer
         Int32 maximumLength = AnalyzerOptionsReader.GetInt(
             context.Options,
             context.Tree,
-            "max_line_length",
-            DefaultMaximumLineLength);
+            RuleOptions.MaxLineLength,
+            RuleOptions.DefaultMaxLineLength);
         if (maximumLength < 1)
         {
-            maximumLength = DefaultMaximumLineLength;
+            maximumLength = RuleOptions.DefaultMaxLineLength;
         }
 
         foreach (TextLine line in text.Lines)

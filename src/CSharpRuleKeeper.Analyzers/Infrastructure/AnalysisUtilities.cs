@@ -5,18 +5,28 @@ using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 
 namespace CSharpRuleKeeper.Analyzers.Infrastructure;
 
 static class AnalysisUtilities
 {
-    static readonly string[] s_testAssemblySuffixes =
+    const string IsTestProjectProperty = "build_property.IsTestProject";
+    const string UndottedTestSuffix = "Tests";
+
+    // Compared with the last dot-separated segment of the assembly name.
+    static readonly string[] s_testAssemblySegments =
     {
-        ".Test",
-        ".Tests",
-        ".Benchmark",
-        ".Benchmarks",
+        "Test",
+        "Tests",
+        "UnitTest",
+        "UnitTests",
+        "IntegrationTest",
+        "IntegrationTests",
+        "Specs",
+        "Benchmark",
+        "Benchmarks",
     };
 
     public static bool IsBoolean(ITypeSymbol? type)
@@ -91,6 +101,21 @@ static class AnalysisUtilities
         };
     }
 
+    public static bool IsTestProject(Compilation compilation, AnalyzerOptions options)
+    {
+        AnalyzerConfigOptions globalOptions = options.AnalyzerConfigOptionsProvider.GlobalOptions;
+        if (globalOptions.TryGetValue(IsTestProjectProperty, out string? value) &&
+            bool.TryParse(value, out bool isTestProject) &&
+            isTestProject)
+        {
+            return true;
+        }
+
+        return IsTestAssembly(compilation.AssemblyName);
+    }
+
+    // "Calculator.UnitTests" and "CalculatorTests" are test assemblies; "HardwareSpecs" and
+    // "Contests" are not, because only the PascalCase word "Tests" is trusted without a dot.
     public static bool IsTestAssembly(string? assemblyName)
     {
         if (assemblyName is null)
@@ -98,8 +123,22 @@ static class AnalysisUtilities
             return false;
         }
 
-        return s_testAssemblySuffixes.Any(suffix =>
-            assemblyName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+        string lastSegment = assemblyName.Substring(assemblyName.LastIndexOf('.') + 1);
+        return s_testAssemblySegments.Any(segment =>
+                string.Equals(segment, lastSegment, StringComparison.OrdinalIgnoreCase)) ||
+            assemblyName.EndsWith(UndottedTestSuffix, StringComparison.Ordinal);
+    }
+
+    // SourceText reports an empty extra line after a final line break; people and wc -l do not count it.
+    public static Int32 CountFileLines(SourceText text)
+    {
+        Int32 lineCount = text.Lines.Count;
+        return IsAfterFinalLineBreak(text, text.Lines[lineCount - 1]) ? lineCount - 1 : lineCount;
+    }
+
+    public static bool IsAfterFinalLineBreak(SourceText text, TextLine line)
+    {
+        return line.Span.IsEmpty && line.Start == text.Length;
     }
 
     public static string StripFieldPrefix(string name)

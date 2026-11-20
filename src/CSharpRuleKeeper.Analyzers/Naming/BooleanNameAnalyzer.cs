@@ -54,16 +54,26 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        string candidateName = symbol is IFieldSymbol
-            ? AnalysisUtilities.StripFieldPrefix(symbol.Name)
-            : symbol.Name;
+        IFieldSymbol? declaredField = symbol as IFieldSymbol;
+        string candidateName = declaredField is null
+            ? symbol.Name
+            : AnalysisUtilities.StripFieldPrefix(symbol.Name);
         ReportIfInvalid(
             context,
             declaration.Identifier.GetLocation(),
             candidateName,
             symbol.Name,
             symbol.Kind.ToString().ToLowerInvariant(),
-            s_statePrefixes);
+            declaredField is not null && IsPascalCaseField(declaredField) ? s_memberPrefixes : s_statePrefixes);
+    }
+
+    // Mirrors HBCS014: only private and internal non-const fields use the _/s_/t_ camelCase form;
+    // constants and wider-visibility fields are PascalCase.
+    static bool IsPascalCaseField(IFieldSymbol field)
+    {
+        return field.IsConst ||
+            (field.DeclaredAccessibility != Accessibility.Private &&
+                field.DeclaredAccessibility != Accessibility.Internal);
     }
 
     static void AnalyzeParameter(SyntaxNodeAnalysisContext context)
@@ -80,13 +90,16 @@ public sealed class BooleanNameAnalyzer : DiagnosticAnalyzer
             return;
         }
 
+        // A positional record parameter is also the name of a public member: the generated property,
+        // or the same-named member the record declares instead. Class primary constructors are ordinary.
+        bool isPositionalProperty = declaration.Parent?.Parent is RecordDeclarationSyntax;
         ReportIfInvalid(
             context,
             declaration.Identifier.GetLocation(),
             parameter.Name,
             parameter.Name,
-            "parameter",
-            s_statePrefixes);
+            isPositionalProperty ? "record parameter" : "parameter",
+            isPositionalProperty ? s_memberPrefixes : s_statePrefixes);
     }
 
     static bool IsExemptParameter(IParameterSymbol parameter)
