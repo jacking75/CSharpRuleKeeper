@@ -2,7 +2,7 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/). Each version lists English entries, then Korean entries.
 
-## 1.2.0 (unreleased)
+## 1.2.0 (2026-11-20)
 
 The first public version. Rule IDs, categories and default severities of HBCS001–HBCS015 are unchanged; the rule changes below only remove wrong reports.
 
