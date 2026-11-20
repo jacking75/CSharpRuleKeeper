@@ -7,6 +7,10 @@ $ErrorActionPreference = "Stop"
 $toolRoot = Split-Path -Parent $PSScriptRoot
 # Relative to the tool root, so the gate works from any current directory.
 $solutionPath = if ([IO.Path]::IsPathRooted($Solution)) { $Solution } else { Join-Path $toolRoot $Solution }
+# The script tests start their child scripts with this same PowerShell, so the gate verifies the host it runs in.
+$osDescription = try { [Runtime.InteropServices.RuntimeInformation]::OSDescription } catch { [Environment]::OSVersion.VersionString }
+Write-Host "Quality gate host: PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition)) on $("$osDescription".Trim())"
+Write-Host "Child PowerShell processes: $([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)"
 
 function Stop-OnFailure([Int32]$ExitCode, [string]$Step)
 {
@@ -47,7 +51,7 @@ $scriptTests = @(
 )
 foreach ($scriptTest in $scriptTests)
 {
-    & "$PSScriptRoot\$scriptTest"
+    & (Join-Path $PSScriptRoot $scriptTest)
     Stop-OnFailure $LASTEXITCODE $scriptTest
 }
 
@@ -55,7 +59,7 @@ foreach ($scriptTest in $scriptTests)
 # The integration test already built the Release analyzer.
 $analyzerPath = Join-Path $toolRoot "src\CSharpRuleKeeper.Analyzers\bin\Release\netstandard2.0\CSharpRuleKeeper.Analyzers.dll"
 $selfCheckPath = Join-Path $toolRoot "artifacts\self-check.md"
-& "$PSScriptRoot\Invoke-CSharpRuleKeeper.ps1" -Solution $solutionPath -AnalyzerPath $analyzerPath -OutputPath $selfCheckPath -FailOn info
+& (Join-Path $PSScriptRoot "Invoke-CSharpRuleKeeper.ps1") -Solution $solutionPath -AnalyzerPath $analyzerPath -OutputPath $selfCheckPath -FailOn info
 Stop-OnFailure $LASTEXITCODE "self check (see $selfCheckPath)"
 
 exit 0

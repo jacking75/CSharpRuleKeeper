@@ -17,6 +17,8 @@ $analyzerPath = Join-Path $toolRoot "src\CSharpRuleKeeper.Analyzers\bin\Release\
 $cleanSource = "using System;`r`n`r`nsealed class Example`r`n{`r`n    public Int32 Count { get; set; }`r`n}`r`n"
 $violatingSource = "using System;`r`n`r`nsealed class Example`r`n{`r`n    public Int32 Count;`r`n}`r`n"
 $utf8 = [Text.UTF8Encoding]::new($false)
+# Child scripts run under the PowerShell that runs this test (pwsh or Windows PowerShell).
+$powerShellPath = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
 
 function Assert-True([bool]$Condition, [string]$Message)
 {
@@ -27,7 +29,7 @@ function Invoke-Hook([string]$InputText, [string[]]$HookArguments, [switch]$With
 {
     $allArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $hookScript) + $HookArguments
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = "powershell"
+    $startInfo.FileName = $powerShellPath
     $startInfo.Arguments = @($allArguments | ForEach-Object {
         if ($_ -notmatch '[\s"]') { $_ } else { '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' }
     }) -join " "

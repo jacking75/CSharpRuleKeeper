@@ -20,18 +20,28 @@ agent says "done" -> Stop hook -> state already passed? -- yes --> allow stop
 
 1. 도구를 받고([시작하기](GETTING_STARTED.md#1-도구-받기)) 프로젝트에 검사를 한 번 직접 실행해, 빌드가 되는지와 진단이 몇 개인지 확인한다.
 2. 에이전트 설정에 훅을 추가한다. 바로 복사해 쓸 파일은 [`hooks/`](../../hooks/README.md)에 있다.
-   - Claude Code: `hooks/claude-code/settings.example.json`. `<repo>/.claude/settings.json`, `.claude/settings.local.json`, `~/.claude/settings.json`에 넣는다.
-   - Codex CLI: `hooks/codex/hooks.example.json` 또는 `hooks/codex/config.example.toml`. 프로젝트 수준의 `.codex/` 훅은 `/hooks`에서 한 번 신뢰 처리해야 한다.
+   - Claude Code: `hooks/claude-code/settings.example.json`(Windows) 또는 `hooks/claude-code/settings.pwsh.example.json`(Linux, macOS). `<repo>/.claude/settings.json`, `.claude/settings.local.json`, `~/.claude/settings.json`에 넣는다.
+   - Codex CLI: `hooks/codex/hooks.example.json`(Windows), `hooks/codex/hooks.pwsh.example.json`(Linux, macOS), 또는 `hooks/codex/config.example.toml`(둘 다: Linux와 macOS는 `command`, Windows는 `command_windows`). 프로젝트 수준의 `.codex/` 훅은 `/hooks`에서 한 번 신뢰 처리해야 한다.
 3. [`hooks/AGENT_INSTRUCTIONS.md`](../../hooks/AGENT_INSTRUCTIONS.md)의 문단을 프로젝트의 `AGENTS.md`나 `CLAUDE.md`에 붙여, 차단이 무슨 뜻인지 에이전트가 알게 한다.
 
-Claude Code 예제는 exec 형식을 쓴다. `"command": "powershell.exe"`와 `args` 배열이며, Claude Code는 셸 없이 이를 바로 실행한다. `C:\tools\CSharpRuleKeeper`를 도구 폴더로 바꾼다. 매개변수는 `args`에 덧붙인다. 예: `"-Solution", "${CLAUDE_PROJECT_DIR}/MySolution.sln"`.
+Claude Code 예제는 exec 형식, 즉 `command`와 `args` 배열을 쓰며, Claude Code는 셸 없이 이를 바로 실행한다.
+
+| OS와 PowerShell | `command` | `args` |
+| --- | --- | --- |
+| Windows, Windows PowerShell 5.1 | `powershell.exe` | `"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\tools\\CSharpRuleKeeper\\build\\Invoke-CSharpRuleKeeperHook.ps1"` |
+| Windows, PowerShell 7 | `pwsh.exe` | 위와 같다 |
+| Linux, macOS, PowerShell 7 | `pwsh` | `"-NoProfile", "-File", "/home/you/tools/CSharpRuleKeeper/build/Invoke-CSharpRuleKeeperHook.ps1"` |
+
+도구 폴더를 자신의 것으로 바꾼다. exec 형식은 `~`를 펼치지 않으므로 전체 경로를 쓴다. 에이전트가 `PATH`에서 `pwsh`를 찾지 못하면 전체 경로(예: `/usr/bin/pwsh`, `/opt/homebrew/bin/pwsh`)를 준다. 훅은 자신을 실행하는 PowerShell로 검사기를 시작한다. 매개변수는 `args`에 덧붙인다. 예: `"-Solution", "${CLAUDE_PROJECT_DIR}/MySolution.sln"`.
+
+PowerShell 7(Windows, 그리고 WSL2의 Ubuntu 24.04인 Linux, 버전 7.7.0)에서는 stdin으로 훅 페이로드를 넣어 어댑터를 테스트했으며 한글 페이로드도 포함했다. Linux와 macOS에서 Claude Code와 Codex CLI 자체로 훅을 실행해 보지는 않았고, macOS에서는 아무것도 테스트하지 않았다.
 
 ## 매개변수
 
 | 매개변수 | 기본값 | 의미 |
 | --- | --- | --- |
 | `-Solution` | 자동 | 검사할 `.sln`, `.slnx`, `.csproj`. 프로젝트 디렉터리 기준. 생략하면 환경 변수 `CSHARPRULEKEEPER_SOLUTION`, 그다음 프로젝트 디렉터리의 유일한 `.sln`/`.slnx`, 그다음 유일한 `.csproj` 순으로 찾는다. 없거나 둘 이상이면 알림을 보이고 차단하지 않는다. |
-| `-ReportPath` | `<project>\.csharprulekeeper\last-report.md` | Markdown 보고서. JSON은 같은 이름에 `.json`을 쓴다. |
+| `-ReportPath` | `<project>/.csharprulekeeper/last-report.md` | Markdown 보고서. JSON은 같은 이름에 `.json`을 쓴다. |
 | `-MaxRetries` | 3 | 1~20. 에이전트를 놓아주기 전까지 연속으로 차단하는 횟수. |
 | `-ChangeDetection` | `auto` | `auto`: 이미 통과한 상태는 건너뛴다(아래 참고). `always`: Stop마다 검사한다. `never`: 훅이 아무것도 하지 않는다. |
 | `-Protocol` | `auto` | `auto`: stdin이 `hook_event_name`을 담은 JSON이면 JSON 프로토콜, 아니면 종료 코드. `claude`와 `codex`는 JSON 프로토콜을, `exitcode`는 종료 코드를 강제한다. |
@@ -47,7 +57,7 @@ Claude Code 예제는 exec 형식을 쓴다. `"command": "powershell.exe"`와 `a
 | `CSHARPRULEKEEPER_SOLUTION` | `-Solution`이 없을 때의 대상. |
 | `CSHARPRULEKEEPER_BASELINE` | `-BaselinePath`가 없을 때의 기준선. |
 | `CSHARPRULEKEEPER_ANALYZER_PATH` | 검사기에 `-AnalyzerPath`로 넘길 미리 빌드한 Analyzer DLL. |
-| `CSHARPRULEKEEPER_STATE_DIR` | 상태 폴더. 기본값 `%LOCALAPPDATA%\CSharpRuleKeeper\hook-state`. |
+| `CSHARPRULEKEEPER_STATE_DIR` | 상태 폴더. 기본값: Windows는 `%LOCALAPPDATA%\CSharpRuleKeeper\hook-state`. Linux와 macOS는 `XDG_STATE_HOME`이 절대 경로로 설정돼 있으면 `$XDG_STATE_HOME/CSharpRuleKeeper/hook-state`, 아니면 `~/.local/state/CSharpRuleKeeper/hook-state`. |
 
 ## 훅의 판단
 
@@ -94,10 +104,10 @@ stdin은 UTF-8로 읽는다(BOM을 인식한다). 입력이 있는데 올바른 
 {"hook_event_name":"Stop","session_id":"manual","cwd":"C:/src/Shop","stop_hook_active":false}
 ```
 
-18초 뒤 훅은 stdout에 다음을 출력하고 0으로 끝난다(실제 출력, 경로는 줄였다).
+18초 뒤 훅은 stdout에 다음을 출력하고 0으로 끝난다(실제 출력, 경로는 줄였다). Windows PowerShell 5.1과 PowerShell 7은 같은 텍스트를 출력하며, Linux와 macOS에서는 경로에 `/`를 쓴다.
 
 ```json
-{"decision":"block","reason":"CSharpRuleKeeper found problems (attempt 1 of 3). Fix them and finish again. Full report: C:\\src\\Shop\\.csharprulekeeper\\last-report.md\n\n2 HBCS diagnostics to fix (most severe first):\n  HBCS001 error Lib\\Holder.cs:7 Public field \u0027Value\u0027 must be replaced or explicitly excepted\n  HBCS009 warning App\\Worker.cs:9 Trailing comment must be moved to its own line\n\nFix cautions:\n  HBCS001 - Review external API, serialization and interop contracts, and encapsulate only when it is safe.\n  HBCS009 - Keep the comment text and move it to its own preceding line.\n\n1 more HBCS diagnostics do not affect the verdict (below -FailOn warning or existing in the baseline); they are listed in the report.\n\nDo not change public APIs, serialization contracts or protocol strings only to satisfy a rule."}
+{"decision":"block","reason":"CSharpRuleKeeper found problems (attempt 1 of 3). Fix them and finish again. Full report: C:\\src\\Shop\\.csharprulekeeper\\last-report.md\n\n2 HBCS diagnostics to fix (most severe first):\n  HBCS001 error Lib\\Holder.cs:7 Public field 'Value' must be replaced or explicitly excepted\n  HBCS009 warning App\\Worker.cs:9 Trailing comment must be moved to its own line\n\nFix cautions:\n  HBCS001 - Review external API, serialization and interop contracts, and encapsulate only when it is safe.\n  HBCS009 - Keep the comment text and move it to its own preceding line.\n\n1 more HBCS diagnostics do not affect the verdict (below -FailOn warning or existing in the baseline); they are listed in the report.\n\nDo not change public APIs, serialization contracts or protocol strings only to satisfy a rule."}
 ```
 
 에이전트는 이 사유를 지시로 받아 작업을 이어 간다. 다음 Stop은 `stop_hook_active: true`로 오고, 문제가 남아 있으면 2번째, 3번째 시도로 차단된다. 그다음 Stop은 `{"systemMessage":"CSharpRuleKeeper: retry limit (3) reached. Stopping without blocking. See C:\\src\\Shop\\.csharprulekeeper\\last-report.md"}`를 받고 에이전트는 멈춘다. 코드를 고치면 검사가 통과하고 훅은 아무것도 출력하지 않는다.
@@ -126,9 +136,9 @@ stdin은 UTF-8로 읽는다(BOM을 인식한다). 입력이 있는데 올바른 
 
 | 위치 | 내용 | 정리 |
 | --- | --- | --- |
-| `<project>\.csharprulekeeper\` | `last-report.md`, `last-report.json`, 그리고 git이 이 폴더를 무시하게 하는 `*`가 든 `.gitignore` | 언제든 지워도 된다. |
-| `%LOCALAPPDATA%\CSharpRuleKeeper\hook-state\`(또는 `CSHARPRULEKEEPER_STATE_DIR`) | `<session_id>.json`(재시도 카운터. 통과하거나 재시도 한도에 도달하면 지운다), `passed-<16 hex>.json`(프로젝트 디렉터리 하나의 마지막 통과 상태) | 14일이 지난 파일은 자동으로 지운다. 폴더는 언제든 지워도 된다. |
-| `%TEMP%\CSharpRuleKeeper-<run id>\` | 검사기의 작업 파일 | 검사가 끝날 때마다 지운다. |
+| `<project>/.csharprulekeeper/` | `last-report.md`, `last-report.json`, 그리고 git이 이 폴더를 무시하게 하는 `*`가 든 `.gitignore` | 언제든 지워도 된다. |
+| 상태 폴더: Windows는 `%LOCALAPPDATA%\CSharpRuleKeeper\hook-state\`, Linux와 macOS는 `~/.local/state/CSharpRuleKeeper/hook-state/`(또는 `$XDG_STATE_HOME` 아래), 또는 `CSHARPRULEKEEPER_STATE_DIR` | `<session_id>.json`(재시도 카운터. 통과하거나 재시도 한도에 도달하면 지운다), `passed-<16 hex>.json`(프로젝트 디렉터리 하나의 마지막 통과 상태) | 14일이 지난 파일은 자동으로 지운다. 폴더는 언제든 지워도 된다. |
+| 시스템 임시 폴더(`%TEMP%`, 또는 `$TMPDIR`/`/tmp`)의 `CSharpRuleKeeper-<run id>/` | 검사기의 작업 파일 | 검사가 끝날 때마다 지운다. |
 
 훅은 `-ReportPath`의 폴더에 아직 `.gitignore`가 없으면 그 `.gitignore`를 쓴다. `-ReportPath`에는 전용 폴더를 준다. `.gitignore`가 없는 프로젝트 루트의 `report.md` 같은 경로를 주면 git이 프로젝트 전체를 무시하게 된다.
 
@@ -147,14 +157,22 @@ stdin은 UTF-8로 읽는다(BOM을 인식한다). 입력이 있는데 올바른 
     powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeperHook.ps1
 ```
 
-깨끗한 프로젝트는 아무것도 출력하지 않고, 위반이 있는 프로젝트는 차단 JSON을 출력한다. Windows PowerShell 5.1은 파이프로 넘기는 텍스트를 ASCII로 보내므로, 페이로드를 ASCII로만 쓰거나 먼저 `$OutputEncoding = [Text.UTF8Encoding]::new($false)`를 실행한다. 통과한 뒤 다시 검사하려면 `-ChangeDetection always`를 더한다.
+Linux와 macOS의 bash나 zsh에서:
+
+```bash
+printf '%s' '{"hook_event_name":"Stop","session_id":"manual","cwd":"/home/you/src/MyApp","stop_hook_active":false}' |
+    pwsh -NoProfile -File ~/tools/CSharpRuleKeeper/build/Invoke-CSharpRuleKeeperHook.ps1
+```
+
+깨끗한 프로젝트는 아무것도 출력하지 않고, 위반이 있는 프로젝트는 차단 JSON을 출력한다. Windows PowerShell 5.1은 파이프로 넘기는 텍스트를 ASCII로 보내므로, 페이로드를 ASCII로만 쓰거나 먼저 `$OutputEncoding = [Text.UTF8Encoding]::new($false)`를 실행한다. PowerShell 7과 bash는 UTF-8로 보낸다. 통과한 뒤 다시 검사하려면 `-ChangeDetection always`를 더한다.
 
 ## 에이전트별 차이
 
 | | Claude Code | Codex CLI |
 | --- | --- | --- |
 | 설정 | `~/.claude/settings.json`, `<repo>/.claude/settings.json`, `.claude/settings.local.json` | `~/.codex/hooks.json`, `config.toml`, `<repo>/.codex/...` |
-| Windows | exec 형식: `"command": "powershell.exe"`와 `args` | `command` 문자열, 또는 TOML의 `command_windows` |
+| Windows | exec 형식: `"command": "powershell.exe"`(또는 `pwsh.exe`)와 `args` | `command` 문자열, 또는 TOML의 `command_windows` |
+| Linux, macOS | exec 형식: `"command": "pwsh"`와 `args`(실제 에이전트로는 실행하지 않음) | `pwsh`를 쓰는 `command` 문자열(실제 에이전트로는 실행하지 않음) |
 | 반복 플래그 | `stop_hook_active` | `stop_hook_active` |
 
 Claude Code는 단순한 답변을 포함한 모든 응답 뒤에 Stop 훅을 실행한다. git 저장소에서는 변경 감지가 그 비용을 낮게 유지한다. 참고: [Claude Code hooks](https://code.claude.com/docs/en/hooks), [Codex hooks](https://developers.openai.com/codex/hooks).

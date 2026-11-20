@@ -4,14 +4,14 @@
 
 Steps 1 to 4 can be prepared by anyone with a clone. Steps marked **(owner)** change the public repository (tags, releases, settings, visibility) and need the repository owner's rights.
 
-1. Run the quality gate in your working copy: `.\build\run-quality-gate.ps1`. It must pass, including the self check.
+1. Run the quality gate in your working copy: `.\build\run-quality-gate.ps1`. It must pass, including the self check. Run it under Windows PowerShell 5.1 and under PowerShell 7 on Windows (`pwsh -NoProfile -File .\build\run-quality-gate.ps1`), and under `pwsh` on Linux in a clone on the Linux file system (not under `/mnt/c`). If a host was not available, say so in the release notes instead of claiming it.
 2. Run it again in fresh clones, to catch files that are not committed and line-ending problems: `git clone <repository> <new folder>` once with the defaults and once with `git clone -c core.autocrlf=false <repository> <new folder>`, then `.\build\run-quality-gate.ps1` in each. `.gitattributes` checks text files out with CRLF, which the repository's own format check requires.
 3. Prepare the version.
    - Set `build/version.txt` (for example `1.2.0`).
    - In `CHANGELOG.md`, replace `(unreleased)` with the release date.
    - Move the entries of `src/CSharpRuleKeeper.Analyzers/AnalyzerReleases.Unshipped.md` into a new `Release x.y.z` section of `AnalyzerReleases.Shipped.md`.
    - Run the quality gate once more and commit.
-4. Build the bundle from that commit: `.\build\Publish-CSharpRuleKeeperBundle.ps1`. It creates `artifacts\CSharpRuleKeeper-<version>.zip` and a `.sha256` file, unpacks the ZIP into a temporary folder and verifies it: entry names, every relative link, no `bin`/`obj` in the sample, `-Doctor`, a clean fixture (exit 0), an HBCS001 fixture (exit 1), and the Getting started practice command (exit 1 with HBCS001 and HBCS002). A failed verification deletes the ZIP and exits 2. Do not commit `artifacts/`.
+4. Build the bundle from that commit: `.\build\Publish-CSharpRuleKeeperBundle.ps1`. It creates `artifacts\CSharpRuleKeeper-<version>.zip` and a `.sha256` file, unpacks the ZIP into a temporary folder and verifies it: entry names, every relative link, no `bin`/`obj` in the sample, `-Doctor`, a clean fixture (exit 0), an HBCS001 fixture (exit 1), and the Getting started practice command (exit 1 with HBCS001 and HBCS002). A failed verification deletes the ZIP and exits 2. The verification runs under the PowerShell that runs the script. Then unpack the ZIP once on Linux and run `-Doctor` and the Getting started practice command there with `pwsh`. Do not commit `artifacts/`.
 5. **(owner)** Push the commit, then tag it: `git tag v1.2.0` and `git push origin v1.2.0`.
 6. **(owner)** Repository settings: description, topics (`csharp`, `roslyn-analyzer`, `code-quality`, `coding-agent`, `claude-code`, `codex`, `lint`, `editorconfig`), Issues enabled, and private vulnerability reporting enabled (Settings > Security), which [SECURITY.md](https://github.com/jacking75/CSharpRuleKeeper/blob/main/SECURITY.md) relies on.
 7. **(owner)** First release only: change the repository visibility to Public.

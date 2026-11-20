@@ -2,7 +2,7 @@
 
 [English](../REPORT.md) | [시작하기](GETTING_STARTED.md) | [훅](HOOKS.md)
 
-검사할 때마다 두 파일을 쓴다. 사람이 읽는 Markdown 보고서(`-OutputPath`, 기본값 `coding-agent-change-report.md`)와 도구가 읽는 JSON 결과(`-JsonOutputPath`, 기본값은 보고서 경로의 확장자를 `.json`으로 바꾼 것)다. 둘 다 임시 이름으로 먼저 쓴 뒤 제자리로 옮긴다. 진단은 컴파일러가 빌드 중에 쓰는 SARIF 로그에서 가져온다.
+검사할 때마다 두 파일을 쓴다. 사람이 읽는 Markdown 보고서(`-OutputPath`, 기본값 `coding-agent-change-report.md`)와 도구가 읽는 JSON 결과(`-JsonOutputPath`, 기본값은 보고서 경로의 확장자를 `.json`으로 바꾼 것)다. 둘 다 임시 이름으로 먼저 쓴 뒤 제자리로 옮기며, 어떤 OS와 PowerShell에서든 BOM 없는 UTF-8로 쓴다(Windows PowerShell 5.1에서는 `Get-Content -Encoding UTF8`로 읽는다). 진단은 컴파일러가 빌드 중에 쓰는 SARIF 로그에서 가져온다.
 
 ## 종료 코드
 
@@ -76,7 +76,7 @@ Zero HBCS diagnostics and a completed analysis are different things. If analysis
 
 ## JSON 결과
 
-`schemaVersion`은 1이다. 같은 스키마 버전 안에서는 필드를 추가만 하며 기존 필드의 의미는 바꾸지 않는다. 위 실행의 JSON이며, 길이 때문에 세 번째 진단은 뺐다(Windows PowerShell은 `'`를 `\u0027`로 쓴다).
+`schemaVersion`은 1이다. 같은 스키마 버전 안에서는 필드를 추가만 하며 기존 필드의 의미는 바꾸지 않는다. 위 실행의 JSON이며, 길이 때문에 세 번째 진단은 뺐다. Windows PowerShell 5.1과 PowerShell 7은 파일의 들여쓰기가 다르지만(이 예는 5.1) 필드, 값, 이스케이프는 같으며, `'`, `<`, `>`, `&` 같은 문자는 그대로 쓴다.
 
 ```json
 {
@@ -112,7 +112,7 @@ Zero HBCS diagnostics and a completed analysis are different things. If analysis
             "path":  "Lib\\Holder.cs",
             "line":  7,
             "column":  18,
-            "message":  "Public field \u0027Value\u0027 must be replaced or explicitly excepted",
+            "message":  "Public field 'Value' must be replaced or explicitly excepted",
             "helpUri":  "https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/RULES.md#hbcs001",
             "fixCaution":  "Review external API, serialization and interop contracts, and encapsulate only when it is safe.",
             "requiresContractReview":  true,
@@ -171,7 +171,7 @@ Zero HBCS diagnostics and a completed analysis are different things. If analysis
 | `ruleId` | `HBCS001`...`HBCS015` 또는 `HBCS900`. |
 | `severity` | `error`, `warning`, `info`(드물게 `hidden`). 빌드 로그에 warning으로 출력됐어도 규칙의 정책 심각도다. `suggestion` 심각도는 `info`로 나온다. |
 | `project`, `targetFramework` | 프로젝트 이름과 target framework. 여러 target framework에서 똑같이 보고된 진단은 한 번만 나오고 framework는 `;`로 잇는다. |
-| `path`, `line`, `column` | 위치. `path`는 대상 폴더 기준 상대 경로다. |
+| `path`, `line`, `column` | 위치. `path`는 대상 폴더 기준 상대 경로이며 검사를 실행한 OS의 구분자를 쓴다(Windows는 `Lib\Holder.cs`, Linux와 macOS는 `Lib/Holder.cs`). |
 | `message` | 진단 메시지. |
 | `helpUri` | [RULES.md](RULES.md)의 해당 규칙 링크. |
 | `fixCaution` | 고치기 전에 확인할 것. |
@@ -181,7 +181,7 @@ Zero HBCS diagnostics and a completed analysis are different things. If analysis
 
 순서: 판정에 반영되는 진단이 먼저 오고, 그다음 심각도(error, warning, info), 프로젝트, target framework, 경로, 줄 순이다. 소스에서 억제한 진단(`#pragma warning disable`, `[SuppressMessage]`)은 들어가지 않는다.
 
-`path`, `formatFiles`, `analysisCoverage`의 경로는 대상 폴더 기준 상대 경로다. 컴파일이 실패하면 컴파일러가 Analyzer를 실행하지 않으므로, 컴파일 오류가 있는 프로젝트는 절대 "분석됨"이 되지 않는다.
+`path`, `formatFiles`, `analysisCoverage`의 경로는 대상 폴더 기준 상대 경로이며 검사를 실행한 OS의 구분자를 쓴다. `target`, `buildErrors.project`, 보고서 경로는 그 OS의 전체 경로다. 컴파일이 실패하면 컴파일러가 Analyzer를 실행하지 않으므로, 컴파일 오류가 있는 프로젝트는 절대 "분석됨"이 되지 않는다.
 
 ## 기준선
 
@@ -193,8 +193,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\bu
 ```
 
 - **만들기.** `-CreateBaseline`에는 `-BaselinePath`가 필요하다(없으면 인수 오류, 종료 코드 2). 분석이 실행 오류 없이 완료됐을 때만 파일을 쓰며 기존 파일은 덮어쓴다. 그 실행은 현재 진단을 모두 `existing`으로 보고하고 0으로 끝나며, 공백 서식 차이가 있으면 1로 끝난다. `-CreateBaseline` 없이 쓰면 파일이 있어야 하며, 없으면 `Baseline file not found: ... Create it first with -CreateBaseline.`과 함께 2로 끝난다.
-- **대조.** 진단마다 지문이 있다. 규칙 ID, 경로, 메시지의 SHA-256이며 줄 번호는 넣지 않으므로 파일 안에서 코드를 옮겨도 새 진단이 되지 않는다. 기준선은 지문마다 진단 개수를 저장한다. 현재 진단은 그 지문에 저장된 개수가 남아 있는 동안 `existing`이고, 저장된 개수를 넘는 것은 새 진단이다. 한 지문 안에서는 앞쪽 줄을 기존 진단으로 보므로, 기존 진단 위에 똑같은 진단을 하나 더 만들면 보고서가 기존 위치를 새 진단으로 표시할 수 있다.
-- **결과.** `baseline.new`와 `baseline.existing`은 현재 진단을 센다. `baseline.resolved`는 저장됐지만 사라진 개수다. `baseline.state`는 `matched`, `reviewRequired`(도구 버전이나 `configurationHash`가 기준선과 다름), `created`, `notUsed` 중 하나다. `reviewRequired`는 판정을 바꾸지 않는다. 기준선이 아직 맞는지 확인하고 의도한 변경 뒤에는 다시 만들라는 뜻이다. 버전 1.1이 만든 기준선은 해시가 더 많은 파일을 포함하게 되어 한 번 `reviewRequired`가 된다.
+- **대조.** 진단마다 지문이 있다. 규칙 ID, 경로, 메시지의 SHA-256이며 줄 번호는 넣지 않으므로 파일 안에서 코드를 옮겨도 새 진단이 되지 않는다. 경로는 어떤 OS에서든 구분자를 `\`로 바꿔 해시하므로, Windows에서 만든 기준선이 Linux나 macOS의 같은 진단과 맞고 그 반대도 마찬가지이며(Windows와 Linux 사이에서 검증), 이전 버전이 Windows에서 쓴 기준선도 계속 맞는다. 기준선은 지문마다 진단 개수를 저장한다. 현재 진단은 그 지문에 저장된 개수가 남아 있는 동안 `existing`이고, 저장된 개수를 넘는 것은 새 진단이다. 한 지문 안에서는 앞쪽 줄을 기존 진단으로 보므로, 기존 진단 위에 똑같은 진단을 하나 더 만들면 보고서가 기존 위치를 새 진단으로 표시할 수 있다.
+- **결과.** `baseline.new`와 `baseline.existing`은 현재 진단을 센다. `baseline.resolved`는 저장됐지만 사라진 개수다. `baseline.state`는 `matched`, `reviewRequired`(도구 버전이나 `configurationHash`가 기준선과 다름), `created`, `notUsed` 중 하나다. `reviewRequired`는 판정을 바꾸지 않는다. 기준선이 아직 맞는지 확인하고 의도한 변경 뒤에는 다시 만들라는 뜻이다. 버전 1.1이 만든 기준선은 해시가 더 많은 파일을 포함하게 되어 한 번 `reviewRequired`가 된다. 해시는 그 파일들의 전체 경로와 바이트도 포함하므로, 다른 폴더나 다른 OS(파일의 줄바꿈이 다를 수 있다)에서 쓰는 기준선은 진단이 계속 대조되더라도 `reviewRequired`가 된다.
 - **한계.** 경로나 메시지가 바뀌면 새 진단이 된다. 파일 이름을 바꾸거나 옮길 때, 메시지에 든 식별자 이름을 바꿀 때, 길이 메시지의 숫자가 바뀔 때(한 줄이 늘면 `Method 'Run' has 45 physical lines...`가 `...46 physical lines...`가 된다)다. HBCS900은 저장하지 않는다. 기준선은 자동으로 갱신되지 않고, 훅은 읽기만 한다.
 
 파일(`schemaVersion` 2)은 풀 리퀘스트에서 검토할 수 있는 평범한 JSON이다.
@@ -218,4 +218,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\bu
 }
 ```
 
-실제 파일에는 모든 지문이 나오며, 이 발췌는 하나만 보여 준다. 버전 1 파일(단순한 `fingerprints` 목록)도 읽는다.
+실제 파일에는 모든 지문이 나오며, 이 발췌는 하나만 보여 준다. 파일의 `path`와 `target`은 참고용이며 파일을 만든 OS의 형식으로 쓴다. 대조에는 `fingerprint`와 `count`만 쓴다. 버전 1 파일(단순한 `fingerprints` 목록)도 읽는다.

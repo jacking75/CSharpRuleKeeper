@@ -48,7 +48,17 @@ dotnet test
 .\build\run-quality-gate.ps1
 ```
 
-`run-quality-gate.ps1`은 먼저 복원하고, 어느 현재 폴더에서든 동작하며, 서식 검사·빌드·테스트를 실행한다. 이어서 외부 프로젝트 주입, 실패 분류, 보고서 계약, 훅 어댑터, 문서 링크 테스트를 실행하고, 마지막으로 `-FailOn info`로 이 저장소를 도구 자신으로 검사하므로 info 진단 하나도 실패가 된다(`artifacts\self-check.md`). 몇 분 걸린다. 이 저장소 작업에 에이전트의 작업 완료 훅을 설정한다면 이 스크립트만 호출하게 하고, 동의 없이 파일을 포맷하게 하지 않는다.
+`run-quality-gate.ps1`은 먼저 복원하고, 어느 현재 폴더에서든 동작하며, 서식 검사·빌드·테스트를 실행한다. 이어서 외부 프로젝트 주입, 실패 분류, 보고서 계약, 훅 어댑터, 문서 링크 테스트를 실행하고, 마지막으로 `-FailOn info`로 이 저장소를 도구 자신으로 검사하므로 info 진단 하나도 실패가 된다(`artifacts\self-check.md`). 몇 분 걸린다. 게이트는 자신을 실행하는 PowerShell을 출력하고, 스크립트 테스트는 하위 스크립트를 그 실행 파일로 시작한다. 따라서 `pwsh -NoProfile -File ./build/run-quality-gate.ps1`은 PowerShell 7을, Windows PowerShell에서 실행한 `.\build\run-quality-gate.ps1`은 5.1을 검증한다. 릴리스 전에는 Windows에서 두 PowerShell로, Linux에서 `pwsh`로 실행한다(1.2.0은 WSL2의 Ubuntu 24.04에서 PowerShell 7.7.0과 `dotnet-install.sh`로 설치한 .NET SDK로 검증했다). macOS는 검증하지 않았다.
+
+하나의 코드로 모든 환경을 지원하기 위한 스크립트 규칙:
+
+- Windows PowerShell 5.1 문법만 쓴다(`?:`, `??`, `&&`, `||` 금지). `$IsWindows`, `$IsLinux`, `$IsMacOS`는 5.1에 없으므로 스크립트는 `$PSVersionTable.PSEdition -ne "Core" -or $IsWindows`를 쓴다.
+- 하위 PowerShell 프로세스는 이름 `powershell`이 아니라 실행 중인 실행 파일(`[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName`)로 시작한다.
+- 경로는 `"$PSScriptRoot\file"`이 아니라 `Join-Path`나 `[IO.Path]::Combine`으로 만든다. 상위 폴더로 올라갈 때는 `[IO.Path]::GetDirectoryName`을 쓴다(`Split-Path -Parent "/"`는 Linux에서 예외를 던진다).
+- 보고서와 JSON 파일은 `Set-Content -Encoding UTF8`(5.1은 BOM을 붙이고 7은 붙이지 않는다)이 아니라 `[IO.File]::WriteAllText`와 BOM 없는 UTF-8로 쓴다.
+- MSBuild 속성에는 `-p:`를, `CSharpRuleKeeper.targets`에서는 `[MSBuild]::NormalizePath`를 쓴다.
+
+이 저장소 작업에 에이전트의 작업 완료 훅을 설정한다면 이 스크립트만 호출하게 하고, 동의 없이 파일을 포맷하게 하지 않는다.
 
 ## 릴리스와 도구
 

@@ -48,7 +48,17 @@ dotnet test
 .\build\run-quality-gate.ps1
 ```
 
-`run-quality-gate.ps1` restores first, works from any current folder, and runs format, build and tests; then the external-project injection, failure classification, report contract, hook adapter and documentation link tests; and finally checks this repository with itself using `-FailOn info`, so even an info finding fails it (`artifacts\self-check.md`). It takes a few minutes. If you configure an agent's completion hook while working on this repository, let it call only this script, and never let it format files without consent.
+`run-quality-gate.ps1` restores first, works from any current folder, and runs format, build and tests; then the external-project injection, failure classification, report contract, hook adapter and documentation link tests; and finally checks this repository with itself using `-FailOn info`, so even an info finding fails it (`artifacts\self-check.md`). It takes a few minutes. The gate prints the PowerShell it runs under, and the script tests start their child scripts with that same executable, so `pwsh -NoProfile -File ./build/run-quality-gate.ps1` verifies PowerShell 7 and `.\build\run-quality-gate.ps1` from Windows PowerShell verifies 5.1. Before a release, run it on Windows under both, and on Linux under `pwsh` (1.2.0 was verified on Ubuntu 24.04 under WSL2 with PowerShell 7.7.0 and a .NET SDK installed with `dotnet-install.sh`). macOS has not been verified.
+
+Rules for the scripts, so that one code base serves every host:
+
+- Valid Windows PowerShell 5.1 syntax only (no `?:`, `??`, `&&`, `||`). `$IsWindows`, `$IsLinux` and `$IsMacOS` do not exist in 5.1; the scripts use `$PSVersionTable.PSEdition -ne "Core" -or $IsWindows`.
+- Start child PowerShell processes with the running executable (`[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName`), never with `powershell` by name.
+- Build paths with `Join-Path` or `[IO.Path]::Combine`, never with `"$PSScriptRoot\file"`; use `[IO.Path]::GetDirectoryName` to walk up folders (`Split-Path -Parent "/"` throws on Linux).
+- Write report and JSON files with `[IO.File]::WriteAllText` and UTF-8 without a byte order mark, not `Set-Content -Encoding UTF8` (5.1 adds a BOM, 7 does not).
+- Use `-p:` for MSBuild properties and `[MSBuild]::NormalizePath` in `CSharpRuleKeeper.targets`.
+
+If you configure an agent's completion hook while working on this repository, let it call only this script, and never let it format files without consent.
 
 ## Release and tools
 

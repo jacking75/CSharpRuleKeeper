@@ -5,13 +5,15 @@ $ErrorActionPreference = "Stop"
 $toolRoot = Split-Path -Parent $PSScriptRoot
 $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) "CSharpRuleKeeper-format-$([Guid]::NewGuid().ToString('N'))"
 $analyzerPath = Join-Path $toolRoot "src\CSharpRuleKeeper.Analyzers\bin\Release\netstandard2.0\CSharpRuleKeeper.Analyzers.dll"
+# Child scripts run under the PowerShell that runs this test (pwsh or Windows PowerShell).
+$powerShellPath = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
 
 function Invoke-CheckerProcess([string[]]$Arguments)
 {
-    $allArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot\Invoke-CSharpRuleKeeper.ps1") + $Arguments
+    $allArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "Invoke-CSharpRuleKeeper.ps1")) + $Arguments
     $quotedArguments = @($allArguments | ForEach-Object { if ($_ -notmatch '[\s"]') { $_ } else { '"' + ($_ -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"' } }) -join " "
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = "powershell"
+    $startInfo.FileName = $powerShellPath
     $startInfo.Arguments = $quotedArguments
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true

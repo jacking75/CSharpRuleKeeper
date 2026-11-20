@@ -5,6 +5,8 @@ $ErrorActionPreference = "Stop"
 $toolRoot = Split-Path -Parent $PSScriptRoot
 $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) "CSharpRuleKeeper integration (non-ascii path)-$([Guid]::NewGuid().ToString('N'))"
 $analyzerPath = Join-Path $toolRoot "src\CSharpRuleKeeper.Analyzers\bin\Release\netstandard2.0\CSharpRuleKeeper.Analyzers.dll"
+# Child scripts run under the PowerShell that runs this test (pwsh or Windows PowerShell).
+$powerShellPath = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
 
 function Assert-True([bool]$Condition, [string]$Message)
 {
@@ -13,8 +15,8 @@ function Assert-True([bool]$Condition, [string]$Message)
 
 function Invoke-Checker([string]$SolutionPath, [string]$ReportPath, [string]$JsonPath, [string[]]$ExtraArguments = @())
 {
-    $allArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$PSScriptRoot\Invoke-CSharpRuleKeeper.ps1", "-Solution", $SolutionPath, "-AnalyzerPath", $analyzerPath, "-OutputPath", $ReportPath, "-JsonOutputPath", $JsonPath) + $ExtraArguments
-    & powershell @allArguments | Out-Host
+    $allArguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "Invoke-CSharpRuleKeeper.ps1"), "-Solution", $SolutionPath, "-AnalyzerPath", $analyzerPath, "-OutputPath", $ReportPath, "-JsonOutputPath", $JsonPath) + $ExtraArguments
+    & $powerShellPath @allArguments | Out-Host
     $exitCode = $LASTEXITCODE
     $result = Get-Content -LiteralPath $JsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
     Assert-True ($result.exitCode -eq $exitCode -and ($result.status -eq "passed") -eq ($exitCode -eq 0)) "The process exit code $exitCode disagrees with the JSON (exitCode $($result.exitCode), status $($result.status))."
@@ -157,8 +159,8 @@ sealed class Example
     $twoExitCode = Invoke-Checker $twoSolution (Join-Path $fixtureRoot "two.md") (Join-Path $fixtureRoot "two.json")
     $two = Get-Content -LiteralPath (Join-Path $fixtureRoot "two.json") -Raw -Encoding UTF8 | ConvertFrom-Json
     Assert-True ($twoExitCode -eq 1 -and $two.analysisCoverage.analyzed -eq 2) "Both projects must be analyzed. Exit code: $twoExitCode, analyzed: $($two.analysisCoverage.analyzed), errors: $($two.executionErrors -join '; ')"
-    Assert-True (@($two.diagnostics | Where-Object { $_.ruleId -eq "HBCS001" -and $_.severity -eq "error" -and $_.path -eq "Lib\Holder.cs" }).Count -eq 1) "Lib's HBCS001 is missing or lost its error severity."
-    Assert-True (@($two.diagnostics | Where-Object { $_.ruleId -eq "HBCS014" -and $_.severity -eq "warning" -and $_.path -eq "App\Worker.cs" }).Count -eq 1) "App's HBCS014 is missing or ignores the .editorconfig severity."
+    Assert-True (@($two.diagnostics | Where-Object { $_.ruleId -eq "HBCS001" -and $_.severity -eq "error" -and $_.path -eq [IO.Path]::Combine("Lib", "Holder.cs") }).Count -eq 1) "Lib's HBCS001 is missing or lost its error severity."
+    Assert-True (@($two.diagnostics | Where-Object { $_.ruleId -eq "HBCS014" -and $_.severity -eq "warning" -and $_.path -eq [IO.Path]::Combine("App", "Worker.cs") }).Count -eq 1) "App's HBCS014 is missing or ignores the .editorconfig severity."
 
     # A baseline with an error-severity violation: creating it passes, an unchanged tree passes, and a second
     # identical trailing comment is new although its fingerprint is already stored once.

@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"/home/you/tools/CSharpRuleKeeper/build/Invoke-CSharpRuleKeeperHook.ps1\"",
+            "timeout": 900
+          }
+        ]
+      }
+    ]
+  }
+}

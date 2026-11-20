@@ -1,9 +1,10 @@
-# Same hook as hooks.example.json, in config.toml form.
+# Same hook as hooks.example.json (Windows) and hooks.pwsh.example.json (Linux, macOS), in config.toml form.
 [[hooks.Stop]]
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\tools\\CSharpRuleKeeper\\build\\Invoke-CSharpRuleKeeperHook.ps1\""
-# Use command_windows when the same file is shared with other platforms.
+# Linux and macOS, PowerShell 7 (pwsh).
+command = "pwsh -NoProfile -File \"/home/you/tools/CSharpRuleKeeper/build/Invoke-CSharpRuleKeeperHook.ps1\""
+# Windows, Windows PowerShell 5.1. For PowerShell 7 on Windows, write pwsh instead of powershell.
 command_windows = "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\tools\\CSharpRuleKeeper\\build\\Invoke-CSharpRuleKeeperHook.ps1\""
 timeout = 900

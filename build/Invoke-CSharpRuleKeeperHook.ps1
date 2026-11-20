@@ -17,6 +17,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $unboundArguments = @($args)
+# Windows PowerShell 5.1 runs only on Windows and has no $IsWindows; PowerShell 7 defines it on every OS.
+$isWindowsHost = $PSVersionTable.PSEdition -ne "Core" -or $IsWindows
+$isMacHost = $PSVersionTable.PSEdition -eq "Core" -and $IsMacOS
+# Windows and macOS file systems are case-insensitive by default, so their paths are compared in lowercase.
+$isCaseInsensitiveFileSystem = $isWindowsHost -or $isMacHost
 $maxReasonLength = 4000
 $maxListedDiagnostics = 20
 $maxListedCompileErrors = 10
@@ -29,6 +34,49 @@ $script:inputProblem = $null
 
 try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }
 
+# Windows PowerShell 5.1 writes ' < > & as \u0027 \u003c \u003e \u0026 and PowerShell 7 writes them as they are.
+# Both hosts write them as they are, so the hook prints the same bytes on every host.
+function ConvertTo-PortableJson($Value)
+{
+    $json = $Value | ConvertTo-Json -Compress
+    return [regex]::Replace($json, '(?<!\\)((?:\\\\)*)\\u00(27|3c|3e|26)', { param($match) $match.Groups[1].Value + [string][char][Convert]::ToInt32($match.Groups[2].Value, 16) }, [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+}
+
+# The checker runs under the same PowerShell as the hook: pwsh starts pwsh, Windows PowerShell starts powershell.exe.
+function Get-PowerShellPath
+{
+    $path = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    if ([IO.Path]::GetFileNameWithoutExtension($path) -in @("pwsh", "powershell")) { return $path }
+    if ($PSVersionTable.PSEdition -eq "Core") { return "pwsh" }
+    return "powershell"
+}
+
+# taskkill exists only on Windows; Process.Kill(true) stops the whole tree on PowerShell 7 (.NET Core 3.0 or later).
+function Stop-ProcessTree([Diagnostics.Process]$Process)
+{
+    if ($isWindowsHost) { & taskkill /PID $Process.Id /T /F 2>$null | Out-Null }
+    else { try { $Process.Kill($true) } catch { } }
+    $Process.WaitForExit()
+}
+
+# CSHARPRULEKEEPER_STATE_DIR wins. Otherwise %LOCALAPPDATA% on Windows, and on Linux and macOS $XDG_STATE_HOME
+# (when it is an absolute path) or ~/.local/state, as the XDG Base Directory specification describes.
+function Get-StateDirectory
+{
+    if ($env:CSHARPRULEKEEPER_STATE_DIR) { return $env:CSHARPRULEKEEPER_STATE_DIR }
+    if ($isWindowsHost) { return [IO.Path]::Combine($env:LOCALAPPDATA, "CSharpRuleKeeper", "hook-state") }
+    $stateHome = if ($env:XDG_STATE_HOME -and [IO.Path]::IsPathRooted($env:XDG_STATE_HOME)) { $env:XDG_STATE_HOME } else { [IO.Path]::Combine($HOME, ".local", "state") }
+    return [IO.Path]::Combine($stateHome, "CSharpRuleKeeper", "hook-state")
+}
+
+function ConvertTo-ComparablePath([string]$Path)
+{
+    $text = [IO.Path]::GetFullPath($Path)
+    if ($text.Length -gt 1) { $text = $text.TrimEnd([char[]]@('\', '/')) }
+    if ($isCaseInsensitiveFileSystem) { $text = $text.ToLowerInvariant() }
+    return $text
+}
+
 function Complete-Hook([ValidateSet("allow", "notice", "block")][string]$Kind, [string]$Text)
 {
     if ($script:inputProblem)
@@ -39,8 +87,8 @@ function Complete-Hook([ValidateSet("allow", "notice", "block")][string]$Kind, [
 
     if ($script:useJsonProtocol)
     {
-        if ($Kind -eq "block") { [Console]::Out.Write((@{ decision = "block"; reason = $Text } | ConvertTo-Json -Compress)) }
-        elseif ($Kind -eq "notice") { [Console]::Out.Write((@{ systemMessage = $Text } | ConvertTo-Json -Compress)) }
+        if ($Kind -eq "block") { [Console]::Out.Write((ConvertTo-PortableJson ([ordered]@{ decision = "block"; reason = $Text }))) }
+        elseif ($Kind -eq "notice") { [Console]::Out.Write((ConvertTo-PortableJson ([ordered]@{ systemMessage = $Text }))) }
         [Console]::Out.Flush()
         exit 0
     }
@@ -191,7 +239,7 @@ function Invoke-Checker([string]$Target, [string]$MarkdownPath, [string]$JsonPat
     }
 
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = (Get-Process -Id $PID).Path
+    $startInfo.FileName = Get-PowerShellPath
     $startInfo.Arguments = ConvertTo-ArgumentString $checkerArguments
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
@@ -205,11 +253,7 @@ function Invoke-Checker([string]$Target, [string]$MarkdownPath, [string]$JsonPat
     $stderr = $process.StandardError.ReadToEndAsync()
     # The checker stops its own dotnet steps at -TimeoutSeconds in total; the grace period is a safety net.
     $isCompleted = $process.WaitForExit(([Int32]$TimeoutSeconds + $timeoutGraceSeconds) * 1000)
-    if (-not $isCompleted)
-    {
-        & taskkill /PID $process.Id /T /F 2>$null | Out-Null
-        $process.WaitForExit()
-    }
+    if (-not $isCompleted) { Stop-ProcessTree $process }
     $exitCode = if ($isCompleted) { $process.ExitCode } else { -1 }
     $process.Dispose()
     return [PSCustomObject]@{ ExitCode = $exitCode; ErrorText = $stderr.Result; TimedOut = -not $isCompleted }
@@ -317,18 +361,20 @@ try
     $projectDirectory = if ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR }
         elseif ($payload -and $payload.cwd) { "$($payload.cwd)" }
         else { (Get-Location).Path }
+    # GetFullPath turns a cwd such as C:/src/App into C:\src\App on Windows, so report paths use one separator.
+    $projectDirectory = [IO.Path]::GetFullPath($projectDirectory)
     # Without a readable payload the loop flag is unknown; counting every attempt keeps the retry limit effective.
     $isStopHookActive = ($null -ne $payload -and $payload.stop_hook_active -eq $true) -or $null -ne $script:inputProblem
     $sessionId = if ($payload -and $payload.session_id) { "$($payload.session_id)" } else { "default" }
     $sessionId = [regex]::Replace($sessionId, "[^A-Za-z0-9_-]", "_")
 
-    $stateDirectory = if ($env:CSHARPRULEKEEPER_STATE_DIR) { $env:CSHARPRULEKEEPER_STATE_DIR } else { Join-Path $env:LOCALAPPDATA "CSharpRuleKeeper\hook-state" }
+    $stateDirectory = Get-StateDirectory
     New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
     Get-ChildItem -LiteralPath $stateDirectory -File -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTimeUtc -lt [DateTime]::UtcNow.AddDays(-14) } |
         Remove-Item -Force -ErrorAction SilentlyContinue
     $statePath = Join-Path $stateDirectory "$sessionId.json"
-    $passedPath = Join-Path $stateDirectory "passed-$((Get-Hash ([IO.Path]::GetFullPath($projectDirectory).TrimEnd('\').ToLowerInvariant())).Substring(0, 16)).json"
+    $passedPath = Join-Path $stateDirectory "passed-$((Get-Hash (ConvertTo-ComparablePath $projectDirectory)).Substring(0, 16)).json"
 
     $target = Find-SolutionPath $projectDirectory
     if ($null -eq $target -or -not (Test-Path -LiteralPath $target))
@@ -341,7 +387,7 @@ try
 
     $state = Read-JsonFile $statePath
     $attempts = if (-not $isStopHookActive -or $null -eq $state) { 0 } else { [Int32]$state.attempts }
-    $markdownPath = if ($ReportPath) { (Resolve-FullPath $ReportPath $projectDirectory) } else { Join-Path $projectDirectory ".csharprulekeeper\last-report.md" }
+    $markdownPath = if ($ReportPath) { (Resolve-FullPath $ReportPath $projectDirectory) } else { [IO.Path]::Combine($projectDirectory, ".csharprulekeeper", "last-report.md") }
     $jsonPath = [IO.Path]::ChangeExtension($markdownPath, ".json")
     if ($isStopHookActive -and $attempts -ge [Int32]$MaxRetries)
     {
@@ -356,7 +402,7 @@ try
     {
         $toolVersion = (Get-Content -LiteralPath (Join-Path $PSScriptRoot "version.txt") -Raw).Trim()
         $baselineHash = if ($baseline -and (Test-Path -LiteralPath $baseline -PathType Leaf)) { (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash } else { "none" }
-        $fingerprint = Get-StateFingerprint $projectDirectory @("target=$($target.ToLowerInvariant())", "failOn=$FailOn", "baseline=$baseline|$baselineHash", "tool=$toolVersion")
+        $fingerprint = Get-StateFingerprint $projectDirectory @("target=$(ConvertTo-ComparablePath $target)", "failOn=$FailOn", "baseline=$baseline|$baselineHash", "tool=$toolVersion")
         $passed = Read-JsonFile $passedPath
         if ($null -ne $fingerprint -and $null -ne $passed -and $passed.fingerprint -eq $fingerprint)
         {

@@ -2,7 +2,7 @@
 
 [한국어](ko/REPORT.md) | [Getting started](GETTING_STARTED.md) | [Hooks](HOOKS.md)
 
-Every check writes two files: a Markdown report for people (`-OutputPath`, default `coding-agent-change-report.md`) and a JSON result for tools (`-JsonOutputPath`, default: the report path with `.json`). Both are written to a temporary name first and then moved into place. Diagnostics come from the SARIF logs the compiler writes during the build.
+Every check writes two files: a Markdown report for people (`-OutputPath`, default `coding-agent-change-report.md`) and a JSON result for tools (`-JsonOutputPath`, default: the report path with `.json`). Both are written to a temporary name first and then moved into place, as UTF-8 without a byte order mark on every OS and PowerShell (in Windows PowerShell 5.1, read them with `Get-Content -Encoding UTF8`). Diagnostics come from the SARIF logs the compiler writes during the build.
 
 ## Exit codes
 
@@ -76,7 +76,7 @@ The header adds `, new diagnostics only` to `Fails on` and a `Baseline:` line wh
 
 ## JSON result
 
-`schemaVersion` is 1. Fields are only added within a schema version; existing fields keep their meaning. The JSON of the run above, with the third finding left out for length (Windows PowerShell writes `'` as `\u0027`):
+`schemaVersion` is 1. Fields are only added within a schema version; existing fields keep their meaning. The JSON of the run above, with the third finding left out for length. Windows PowerShell 5.1 and PowerShell 7 indent the file differently (this is 5.1); the fields, values and escaping are the same, and characters such as `'`, `<`, `>` and `&` are written as they are.
 
 ```json
 {
@@ -112,7 +112,7 @@ The header adds `, new diagnostics only` to `Fails on` and a `Baseline:` line wh
             "path":  "Lib\\Holder.cs",
             "line":  7,
             "column":  18,
-            "message":  "Public field \u0027Value\u0027 must be replaced or explicitly excepted",
+            "message":  "Public field 'Value' must be replaced or explicitly excepted",
             "helpUri":  "https://github.com/jacking75/CSharpRuleKeeper/blob/main/docs/RULES.md#hbcs001",
             "fixCaution":  "Review external API, serialization and interop contracts, and encapsulate only when it is safe.",
             "requiresContractReview":  true,
@@ -171,7 +171,7 @@ Each entry of `diagnostics`:
 | `ruleId` | `HBCS001`...`HBCS015` or `HBCS900`. |
 | `severity` | `error`, `warning` or `info` (rarely `hidden`). This is the rule's policy severity, also when the build log printed it as a warning. A `suggestion` severity appears as `info`. |
 | `project`, `targetFramework` | Project name and target framework. A finding reported identically for several target frameworks is listed once, with the frameworks joined by `;`. |
-| `path`, `line`, `column` | Location; `path` is relative to the target's folder. |
+| `path`, `line`, `column` | Location; `path` is relative to the target's folder and uses the separator of the OS that ran the check (`Lib\Holder.cs` on Windows, `Lib/Holder.cs` on Linux and macOS). |
 | `message` | The diagnostic message. |
 | `helpUri` | Link to the rule in [RULES.md](RULES.md). |
 | `fixCaution` | What to check before fixing. |
@@ -181,7 +181,7 @@ Each entry of `diagnostics`:
 
 Order: findings that affect the verdict first, then by severity (error, warning, info), project, target framework, path and line. Findings suppressed in source (`#pragma warning disable`, `[SuppressMessage]`) are not included.
 
-Paths in `path`, `formatFiles` and `analysisCoverage` are relative to the folder of the target. A project with a compile error is never "analyzed", because the compiler does not run analyzers when compilation fails.
+Paths in `path`, `formatFiles` and `analysisCoverage` are relative to the folder of the target, with the separator of the OS that ran the check; `target`, `buildErrors.project` and the report paths are full paths of that OS. A project with a compile error is never "analyzed", because the compiler does not run analyzers when compilation fails.
 
 ## Baselines
 
@@ -193,8 +193,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\bu
 ```
 
 - **Creating.** `-CreateBaseline` needs `-BaselinePath` (otherwise an argument error, exit 2). It writes the file only when the analysis completed without execution errors, and replaces an existing file. The run then reports every current finding as `existing` and exits 0, or 1 if whitespace differences exist. Without `-CreateBaseline` the file must exist, or the run exits 2 with `Baseline file not found: ... Create it first with -CreateBaseline.`
-- **Matching.** Each finding has a fingerprint: SHA-256 of rule ID, path and message, without the line number, so moving code within a file does not make a finding new. The baseline stores how many findings had each fingerprint. A current finding is `existing` while its fingerprint still has stored occurrences left; occurrences beyond the stored count are new. Within one fingerprint the earliest lines are taken as existing, so after you add a second identical finding above an old one, the report may mark the old location as the new one.
-- **Result.** `baseline.new` and `baseline.existing` count the current findings; `baseline.resolved` counts stored occurrences that are gone. `baseline.state` is `matched`, `reviewRequired` (the tool version or the `configurationHash` differs from the baseline), `created` or `notUsed`. `reviewRequired` does not change the verdict; it tells you to check whether the baseline still fits and recreate it after an intentional change. Baselines made by version 1.1 report `reviewRequired` once, because the hash now covers more files.
+- **Matching.** Each finding has a fingerprint: SHA-256 of rule ID, path and message, without the line number, so moving code within a file does not make a finding new. The path is hashed with `\` as the separator on every OS, so a baseline created on Windows matches the same findings on Linux or macOS and the other way round (verified between Windows and Linux), and baselines written by earlier versions on Windows still match. The baseline stores how many findings had each fingerprint. A current finding is `existing` while its fingerprint still has stored occurrences left; occurrences beyond the stored count are new. Within one fingerprint the earliest lines are taken as existing, so after you add a second identical finding above an old one, the report may mark the old location as the new one.
+- **Result.** `baseline.new` and `baseline.existing` count the current findings; `baseline.resolved` counts stored occurrences that are gone. `baseline.state` is `matched`, `reviewRequired` (the tool version or the `configurationHash` differs from the baseline), `created` or `notUsed`. `reviewRequired` does not change the verdict; it tells you to check whether the baseline still fits and recreate it after an intentional change. Baselines made by version 1.1 report `reviewRequired` once, because the hash now covers more files. The hash also covers the full paths and the bytes of those files, so a baseline used in another folder or on another OS (where the files may have other line endings) reports `reviewRequired` while its findings still match.
 - **Limits.** A finding becomes new when its path or message changes: renaming or moving a file, renaming the identifier in the message, or changing the numbers in a length message (`Method 'Run' has 45 physical lines...` becomes `...46 physical lines...` after one more line). HBCS900 is never stored. The baseline is never updated automatically, and the hook only reads it.
 
 The file (`schemaVersion` 2) is plain JSON that you can review in a pull request:
@@ -218,4 +218,4 @@ The file (`schemaVersion` 2) is plain JSON that you can review in a pull request
 }
 ```
 
-The real file lists every fingerprint; this excerpt shows one. Version 1 files (a plain `fingerprints` list) are still read.
+The real file lists every fingerprint; this excerpt shows one. `path` and `target` in the file are informational and written in the form of the OS that created it; only `fingerprint` and `count` are used for matching. Version 1 files (a plain `fingerprints` list) are still read.

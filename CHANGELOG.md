@@ -23,7 +23,12 @@ The first public version. Rule IDs, categories and default severities of HBCS001
 - Hook: `-FailOn`, `-BaselinePath` and the `CSHARPRULEKEEPER_BASELINE` environment variable, so the hook can be adopted on code with existing violations. The hook never creates or updates a baseline.
 - `.gitattributes`: text files are checked out with CRLF on every Git configuration, as the repository's own checks require.
 - The release bundle contains `samples/SampleConsumer` (source only) and verifies the Getting started practice command from the unpacked folder.
-- `SECURITY.md` (private vulnerability reporting), `CODE_OF_CONDUCT.md` and an issue template configuration.
+- `SECURITY.md` (private vulnerability reporting) and `CODE_OF_CONDUCT.md`.
+- PowerShell 7 and Linux support from the same scripts, which stay valid Windows PowerShell 5.1. Verified: Windows with Windows PowerShell 5.1, Windows with PowerShell 7.7.0, and Linux with PowerShell 7.7.0 on Ubuntu 24.04 under WSL2 (quality gate, Getting started practice, `-Doctor`, baselines across Windows and Linux, and the hook adapter driven with payloads on stdin). macOS is implemented but not verified. Claude Code and Codex CLI were not run with the hook on Linux or macOS.
+- Child PowerShell processes (the checker started by the hook, the bundle verification, the script tests) run under the PowerShell that started them instead of `powershell` by name.
+- The hook keeps its state in `$XDG_STATE_HOME/CSharpRuleKeeper/hook-state` or `~/.local/state/CSharpRuleKeeper/hook-state` on Linux and macOS (`%LOCALAPPDATA%` on Windows, `CSHARPRULEKEEPER_STATE_DIR` still wins).
+- Hook examples for `pwsh` on Linux and macOS: `hooks/claude-code/settings.pwsh.example.json`, `hooks/codex/hooks.pwsh.example.json`, and a `command` for Linux and macOS next to `command_windows` in `hooks/codex/config.example.toml`.
+- `-Doctor` prints the path of the PowerShell in use and the OS, and on macOS a note that macOS support is not verified. The quality gate prints the PowerShell it verifies.
 
 ### Changed
 
@@ -44,6 +49,8 @@ The first public version. Rule IDs, categories and default severities of HBCS001
 - `-Doctor` now judges the target's `global.json` requirement instead of the SDK needed to develop this tool; the tool-side SDK is checked only for source checkouts.
 - Console messages, reports and option catalog are in English. JSON field names and values are unchanged.
 - This repository now follows its own rules.
+- Report paths (`path`, `formatFiles`, `analysisCoverage`) use the separator of the OS that ran the check; Windows output is unchanged. Baseline fingerprints hash the path with `\` on every OS, so a baseline matches the same findings across operating systems, and baselines written by earlier versions on Windows still match.
+- The Markdown report, the JSON result and the baseline are written as UTF-8 without a byte order mark under every PowerShell (Windows PowerShell 5.1 used to add one). JSON written by the report and the hook keeps `'`, `<`, `>` and `&` as they are instead of `\u0027`-style escapes, so Windows PowerShell 5.1 and PowerShell 7 produce the same text apart from indentation; the hook's stdout is identical on both.
 
 ### Fixed
 
@@ -89,7 +96,12 @@ The first public version. Rule IDs, categories and default severities of HBCS001
 - 훅: `-FailOn`, `-BaselinePath`, 환경 변수 `CSHARPRULEKEEPER_BASELINE`. 기존 위반이 있는 코드에도 훅을 도입할 수 있다. 훅은 기준선을 만들거나 갱신하지 않는다.
 - `.gitattributes`: 저장소 자체 검사가 요구하는 대로 어떤 Git 설정에서도 텍스트 파일을 CRLF로 체크아웃한다.
 - 릴리스 번들에 `samples/SampleConsumer`(소스만)를 넣고, 풀어 놓은 폴더에서 시작 안내의 연습 명령을 검증한다.
-- `SECURITY.md`(비공개 취약점 보고), `CODE_OF_CONDUCT.md`, 이슈 템플릿 구성.
+- `SECURITY.md`(비공개 취약점 보고), `CODE_OF_CONDUCT.md`.
+- Windows PowerShell 5.1 문법을 유지한 같은 스크립트로 PowerShell 7과 Linux를 지원한다. 검증한 환경: Windows PowerShell 5.1의 Windows, PowerShell 7.7.0의 Windows, WSL2의 Ubuntu 24.04에서 PowerShell 7.7.0의 Linux(품질 게이트, 시작하기 연습, `-Doctor`, Windows와 Linux 사이의 기준선, stdin 페이로드로 실행한 훅 어댑터). macOS는 구현했지만 검증하지 않았다. Linux와 macOS에서 Claude Code와 Codex CLI로 훅을 실행해 보지는 않았다.
+- 하위 PowerShell 프로세스(훅이 시작하는 검사기, 번들 검증, 스크립트 테스트)는 이름 `powershell`이 아니라 자신을 시작한 PowerShell로 실행된다.
+- 훅은 Linux와 macOS에서 상태를 `$XDG_STATE_HOME/CSharpRuleKeeper/hook-state` 또는 `~/.local/state/CSharpRuleKeeper/hook-state`에 둔다(Windows는 `%LOCALAPPDATA%`, `CSHARPRULEKEEPER_STATE_DIR`이 계속 우선한다).
+- Linux와 macOS의 `pwsh`용 훅 예제: `hooks/claude-code/settings.pwsh.example.json`, `hooks/codex/hooks.pwsh.example.json`, 그리고 `hooks/codex/config.example.toml`의 `command_windows` 옆에 Linux·macOS용 `command`.
+- `-Doctor`가 사용 중인 PowerShell의 경로와 OS를 출력하고, macOS에서는 macOS 지원을 검증하지 않았다는 안내를 출력한다. 품질 게이트는 자신이 검증하는 PowerShell을 출력한다.
 
 ### 변경
 
@@ -110,6 +122,8 @@ The first public version. Rule IDs, categories and default severities of HBCS001
 - `-Doctor`는 이 도구 개발용 SDK가 아니라 대상 `global.json`의 요구를 판정한다. 도구 쪽 SDK는 소스 체크아웃일 때만 확인한다.
 - 콘솔 메시지, 보고서, 옵션 카탈로그를 영어로 바꿨다. JSON 필드 이름과 값은 그대로다.
 - 이 저장소가 자기 규칙을 따른다.
+- 보고서 경로(`path`, `formatFiles`, `analysisCoverage`)는 검사를 실행한 OS의 구분자를 쓴다. Windows 출력은 그대로다. 기준선 지문은 어떤 OS에서든 경로를 `\` 구분자로 해시하므로 기준선이 OS가 달라도 같은 진단과 맞고, 이전 버전이 Windows에서 쓴 기준선도 계속 맞는다.
+- Markdown 보고서, JSON 결과, 기준선을 어떤 PowerShell에서든 BOM 없는 UTF-8로 쓴다(Windows PowerShell 5.1은 BOM을 붙였다). 보고서와 훅이 쓰는 JSON은 `'`, `<`, `>`, `&`를 `\u0027` 같은 이스케이프 없이 그대로 쓰므로 Windows PowerShell 5.1과 PowerShell 7의 텍스트가 들여쓰기 말고는 같고, 훅의 stdout은 완전히 같다.
 
 ### 수정
 

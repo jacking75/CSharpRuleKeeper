@@ -17,7 +17,7 @@ $measurements = [Collections.Generic.List[object]]::new()
 for ($index = 1; $index -le $Iterations; $index++)
 {
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    & "$PSScriptRoot\Invoke-CSharpRuleKeeper.ps1" -Solution $Solution -AnalyzerPath $analyzerPath -OutputPath "artifacts/performance-$index.md" -JsonOutputPath "artifacts/performance-$index.json"
+    & (Join-Path $PSScriptRoot "Invoke-CSharpRuleKeeper.ps1") -Solution $Solution -AnalyzerPath $analyzerPath -OutputPath "artifacts/performance-$index.md" -JsonOutputPath "artifacts/performance-$index.json"
     $exitCode = $LASTEXITCODE
     $watch.Stop()
     $measurements.Add([PSCustomObject]@{ iteration = $index; elapsedMilliseconds = $watch.ElapsedMilliseconds; exitCode = $exitCode })
@@ -27,7 +27,7 @@ $ordered = @($measurements.elapsedMilliseconds | Sort-Object)
 $median = $ordered[[Math]::Floor($ordered.Count / 2)]
 $result = [ordered]@{
     measuredAt = [DateTimeOffset]::UtcNow.ToString("o")
-    machine = $env:COMPUTERNAME
+    machine = [Environment]::MachineName
     sdk = (& dotnet --version)
     target = [IO.Path]::GetFullPath($Solution)
     iterations = $Iterations

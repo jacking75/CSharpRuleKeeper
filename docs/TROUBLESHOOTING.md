@@ -29,7 +29,7 @@ Run `-Doctor` first. Do not mistake a failed build or a missing analysis for "0 
 | A warning fails your normal build | The target sets `TreatWarningsAsErrors`. Under the checker HBCS warnings are exempt; with the NuGet package they are not. Fix the finding or tune the [options](CONFIGURATION.md). |
 | `The target build exceeded the 900 second limit` | Raise `-TimeoutSeconds`; it covers the whole check. For the hook, raise the agent's hook `timeout` as well. |
 | `Argument error: ...`, exit 2 | A parameter name or value is wrong; nothing was written. An ambiguous abbreviation (`-C`) or a parameter without its value is rejected by PowerShell itself and exits 1 with a PowerShell error. |
-| `... is not recognized as the name of a cmdlet` after `-DefineConstants A;B` | Quote the list: `-DefineConstants "A;B"`. |
+| `... is not recognized as the name of a cmdlet` after `-DefineConstants A;B` (or `command not found` in bash) | Quote the list: `-DefineConstants "A;B"`. |
 | `baseline.state` is `reviewRequired` | The tool version or the configuration files changed since the baseline was made. The verdict is unaffected; recreate the baseline after reviewing. |
 | An old finding reported as new against the baseline | Its path or message changed, for example a long method that grew by one line. See [baseline limits](REPORT.md#baselines). |
 | HBCS900 points at line 1 of a `.cs` file | The problem is in `.editorconfig`; the file only shows where the option applies. |
@@ -40,10 +40,20 @@ Run `-Doctor` first. Do not mistake a failed build or a missing analysis for "0 
 | The project's own `CustomAfterMicrosoftCommonTargets` seems ignored | The checker preserves it per project, including inside solutions. A warning that it could not evaluate a project means that project's extension may be skipped. |
 | A rule seems to demand changing an external contract | Do not force it. Check callers, serialization and protocols, then except or suppress the finding with a reason. |
 
-## Windows PowerShell only
+## PowerShell versions and operating systems
 
-The scripts are tested with Windows PowerShell 5.1 on Windows. PowerShell 7, macOS and Linux are not supported.
+The same scripts run under Windows PowerShell 5.1 (Windows) and PowerShell 7 (`pwsh`; Windows, Linux, macOS). Verified: Windows with Windows PowerShell 5.1, Windows with PowerShell 7.7.0, and Linux with PowerShell 7.7.0 on Ubuntu 24.04 under WSL2. macOS is implemented but has not been verified; other Linux distributions have not been tested.
+
+| You see | Do this |
+| --- | --- |
+| `pwsh: command not found` (Linux, macOS) | Install PowerShell 7 ([Microsoft's instructions](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)), or call it by its full path. In agent settings give the full path if the agent's `PATH` does not contain it. |
+| `... cannot be loaded because running scripts is disabled` (Windows) | Keep `-ExecutionPolicy Bypass` in the command; this applies to `pwsh.exe` as well as `powershell.exe`. |
+| The hook started the checker with a different PowerShell than you expected | The checker always runs under the PowerShell that runs the hook. Change `command` in the agent settings (`powershell.exe`, `pwsh.exe` or `pwsh`). `-Doctor` prints the PowerShell in use. |
+| Report paths use `/` on one machine and `\` on another | Paths use the separator of the OS that ran the check. Baseline matching does not depend on it ([baselines](REPORT.md#baselines)). |
+| `baseline.state` is `reviewRequired` right after moving a baseline to another OS or folder | The configuration hash covers the full paths and bytes of the configuration files. The findings still match; the verdict is unaffected. |
+| Non-ASCII text in the JSON looks broken in Windows PowerShell 5.1 | The report and JSON are UTF-8 without a byte order mark; read them with `Get-Content -Encoding UTF8`. |
+| macOS: something does not work | macOS has not been verified. Please [report it](#reporting-an-issue) with the `-Doctor` output. Known areas that were reasoned about but not exercised: case-insensitive but case-preserving file names, the `/var` and `/tmp` links to `/private`, and `pwsh` installed by Homebrew outside the agent's `PATH`. |
 
 ## Reporting an issue
 
-Use the [bug report form](https://github.com/jacking75/CSharpRuleKeeper/issues/new/choose). Include the tool version, OS, SDK and PowerShell version, the exact command and its exit code, the `-Doctor` output, the JSON result (or the relevant part), the relevant `.editorconfig`, and a minimal code sample with the expected and actual diagnostics. Do not share private source code, tokens or logs with personal paths. Report security problems privately as described in the [security policy](https://github.com/jacking75/CSharpRuleKeeper/blob/main/SECURITY.md). Issues are handled as maintainer time allows; there is no response-time guarantee.
+[Open an issue](https://github.com/jacking75/CSharpRuleKeeper/issues/new). Include the tool version, OS (and Linux distribution), SDK and PowerShell version (Windows PowerShell 5.1 or PowerShell 7.x), the exact command and its exit code, the `-Doctor` output, the JSON result (or the relevant part), the relevant `.editorconfig`, and a minimal code sample with the expected and actual diagnostics. Do not share private source code, tokens or logs with personal paths. Report security problems privately as described in the [security policy](https://github.com/jacking75/CSharpRuleKeeper/blob/main/SECURITY.md). Issues are handled as maintainer time allows; there is no response-time guarantee.

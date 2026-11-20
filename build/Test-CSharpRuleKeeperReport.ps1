@@ -5,6 +5,12 @@ $ErrorActionPreference = "Stop"
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) "CSharpRuleKeeper-report-$([Guid]::NewGuid().ToString('N'))"
 $reportScript = Join-Path $PSScriptRoot "New-CodingAgentChangeReport.ps1"
 $statusByExitCode = @{ 0 = "passed"; 1 = "failed"; 2 = "failed" }
+# Child scripts run under the PowerShell that runs this test (pwsh or Windows PowerShell).
+$powerShellPath = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+# The fixture paths are rooted the way the OS that runs the test roots them.
+$isWindowsHost = $PSVersionTable.PSEdition -ne "Core" -or $IsWindows
+$sourceRoot = if ($isWindowsHost) { "C:\src" } else { "/src" }
+$sourceFile = [IO.Path]::Combine($sourceRoot, "File.cs")
 
 function Invoke-Report([string]$Name, [string[]]$Lines, [hashtable]$Extra = @{})
 {
@@ -12,7 +18,7 @@ function Invoke-Report([string]$Name, [string[]]$Lines, [hashtable]$Extra = @{})
         BuildOutput = $Lines
         OutputPath = (Join-Path $testRoot "$Name.md")
         JsonOutputPath = (Join-Path $testRoot "$Name.json")
-        Target = "C:\src\Fixture.csproj"
+        Target = [IO.Path]::Combine($sourceRoot, "Fixture.csproj")
         BuildExitCode = 0
         FormatStatus = "passed"
         AnalysisStatus = "passed"
@@ -42,7 +48,7 @@ function New-SarifResult([string]$RuleId, [string]$Level, [Int32]$Line, [hashtab
         ruleId = $RuleId
         level = $Level
         message = @{ text = "$RuleId message" }
-        locations = @(@{ physicalLocation = @{ artifactLocation = @{ uri = "file:///C:/src/File.cs" }; region = @{ startLine = $Line; startColumn = 1 } } })
+        locations = @(@{ physicalLocation = @{ artifactLocation = @{ uri = ([Uri]$sourceFile).AbsoluteUri }; region = @{ startLine = $Line; startColumn = 1 } } })
     }
     if ($Properties) { $result.properties = $Properties }
     if ($Suppressions) { $result.suppressions = $Suppressions }
@@ -52,11 +58,11 @@ function New-SarifResult([string]$RuleId, [string]$Level, [Int32]$Line, [hashtab
 try
 {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
-    $errorLine = "C:\src\File.cs(1,2): error HBCS001: Public field 'Value' must be replaced"
-    $warningLine = "C:\src\File.cs(2,3): warning HBCS002: Boolean property 'Ready' must start with Is"
-    $infoLine = "C:\src\File.cs(3,1): info HBCS008: Private modifier on field '_x' should be omitted"
-    $trailingLine = "C:\src\File.cs({0},20): warning HBCS009: Trailing comment must be moved to its own line"
-    $configurationLine = "C:\src\File.cs(1,1): warning HBCS900: Option 'personal_csharp_rules.max_line_length' has invalid value 'wide'"
+    $errorLine = "$sourceFile(1,2): error HBCS001: Public field 'Value' must be replaced"
+    $warningLine = "$sourceFile(2,3): warning HBCS002: Boolean property 'Ready' must start with Is"
+    $infoLine = "$sourceFile(3,1): info HBCS008: Private modifier on field '_x' should be omitted"
+    $trailingLine = "$sourceFile({0},20): warning HBCS009: Trailing comment must be moved to its own line"
+    $configurationLine = "$sourceFile(1,1): warning HBCS900: Option 'personal_csharp_rules.max_line_length' has invalid value 'wide'"
 
     # The JSON status and the exit code always agree, whatever the severity mix.
     Assert-Verdict "clean" (Invoke-Report "clean" @()) 0 0
@@ -77,7 +83,7 @@ try
     $baselinePath = Join-Path $testRoot "baseline.json"
     $created = Invoke-Report "baseline-create" @($errorLine, ($trailingLine -f 5)) @{ BaselinePath = $baselinePath; CreateBaseline = $true }
     Assert-Verdict "baseline-create" $created 0 2
-    $shiftedErrorLine = "C:\src\File.cs(20,2): error HBCS001: Public field 'Value' must be replaced"
+    $shiftedErrorLine = "$sourceFile(20,2): error HBCS001: Public field 'Value' must be replaced"
     Assert-Verdict "baseline-existing-only" (Invoke-Report "baseline-existing" @($shiftedErrorLine, ($trailingLine -f 9)) @{ BaselinePath = $baselinePath }) 0 2
     $withNew = Invoke-Report "baseline-new" @($shiftedErrorLine, ($trailingLine -f 9), ($trailingLine -f 12)) @{ BaselinePath = $baselinePath }
     Assert-Verdict "baseline-with-new" $withNew 1 3
@@ -89,6 +95,14 @@ try
     $legacyFingerprint = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes("HBCS001|File.cs|Public field 'Value' must be replaced"))).Replace("-", "").ToLowerInvariant()
     @{ schemaVersion = 1; fingerprints = @($legacyFingerprint) } | ConvertTo-Json | Set-Content -LiteralPath $legacyPath -Encoding UTF8
     Assert-Verdict "legacy-baseline" (Invoke-Report "legacy-baseline" @($errorLine) @{ BaselinePath = $legacyPath }) 0 1
+
+    # A baseline created on Windows (path hashed as Sub\File.cs) matches the same finding on every OS, where the
+    # report path is Sub/File.cs on Linux and macOS.
+    $portablePath = Join-Path $testRoot "portable-baseline.json"
+    $portableFingerprint = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes("HBCS001|Sub\File.cs|Public field 'Value' must be replaced"))).Replace("-", "").ToLowerInvariant()
+    @{ schemaVersion = 2; entries = @(@{ fingerprint = $portableFingerprint; count = 1 }) } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $portablePath -Encoding UTF8
+    $subFileLine = "$([IO.Path]::Combine($sourceRoot, 'Sub', 'File.cs'))(1,2): error HBCS001: Public field 'Value' must be replaced"
+    Assert-Verdict "portable-baseline" (Invoke-Report "portable-baseline" @($subFileLine) @{ BaselinePath = $portablePath }) 0 1
 
     # SARIF: the policy severity carried by a downgraded finding wins, "note" is info, suppressed results are skipped,
     # and errors sort before infos.
@@ -105,7 +119,7 @@ try
     $blockedParent = Join-Path $testRoot "blocked-parent"
     Set-Content -LiteralPath $blockedParent -Value "file" -Encoding UTF8
     $ErrorActionPreference = "Continue"
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $reportScript -OutputPath (Join-Path $blockedParent "report.md") -JsonOutputPath (Join-Path $testRoot "blocked.json") -Target "Fixture.csproj" -BuildExitCode 0 -FormatStatus passed -AnalysisStatus passed 2>$null | Out-Null
+    & $powerShellPath -NoProfile -ExecutionPolicy Bypass -File $reportScript -OutputPath (Join-Path $blockedParent "report.md") -JsonOutputPath (Join-Path $testRoot "blocked.json") -Target "Fixture.csproj" -BuildExitCode 0 -FormatStatus passed -AnalysisStatus passed 2>$null | Out-Null
     $writeFailureExitCode = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
     if ($writeFailureExitCode -ne 2) { throw "Report save failure exit code was $writeFailureExitCode, expected 2." }

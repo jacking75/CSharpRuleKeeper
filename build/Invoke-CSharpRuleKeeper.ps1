@@ -24,6 +24,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $unboundArguments = @($args)
+# Windows PowerShell 5.1 runs only on Windows and has no $IsWindows; PowerShell 7 defines it on every OS.
+$isWindowsHost = $PSVersionTable.PSEdition -ne "Core" -or $IsWindows
+$isMacHost = $PSVersionTable.PSEdition -eq "Core" -and $IsMacOS
 $originalConsoleEncoding = [Console]::OutputEncoding
 $originalLocation = Get-Location
 $toolRoot = Split-Path -Parent $PSScriptRoot
@@ -87,6 +90,14 @@ function Assert-WritablePath([string]$Path, [string]$Label)
     if (Test-Path -LiteralPath $Path -PathType Container) { throw "$Label is an existing folder, not a file: $Path" }
 }
 
+# taskkill exists only on Windows; Process.Kill(true) stops the whole tree on PowerShell 7 (.NET Core 3.0 or later).
+function Stop-ProcessTree([Diagnostics.Process]$Process)
+{
+    if ($isWindowsHost) { & taskkill /PID $Process.Id /T /F 2>$null | Out-Null }
+    else { try { $Process.Kill($true) } catch { } }
+    $Process.WaitForExit()
+}
+
 function Get-RemainingMilliseconds
 {
     if ($null -eq $deadline) { return [Int32]::MaxValue }
@@ -122,11 +133,7 @@ function Invoke-DotNet([string[]]$Arguments, [string]$WorkingDirectory)
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
         $completed = $process.WaitForExit($remaining)
-        if (-not $completed)
-        {
-            & taskkill /PID $process.Id /T /F 2>$null | Out-Null
-            $process.WaitForExit()
-        }
+        if (-not $completed) { Stop-ProcessTree $process }
         $process.Refresh()
         $output = @(($stdout.Result + [Environment]::NewLine + $stderr.Result) -split "`r?`n" | Where-Object { $_ -ne "" })
         $errorOutput = @($stderr.Result -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
@@ -204,9 +211,8 @@ function Find-GlobalJson([string]$StartDirectory)
     {
         $candidate = Join-Path $directory "global.json"
         if (Test-Path -LiteralPath $candidate) { return $candidate }
-        $parent = Split-Path -Parent $directory
-        if ($parent -eq $directory) { break }
-        $directory = $parent
+        # GetDirectoryName returns null at the root; Split-Path -Parent throws for "/" on Linux and macOS.
+        $directory = [IO.Path]::GetDirectoryName($directory)
     }
 
     return $null
@@ -226,7 +232,10 @@ function Show-Doctor
     Write-Host "CSharpRuleKeeper doctor"
     Write-Host "- Tool version: $toolVersion"
     Write-Host "- Tool root: $toolRoot"
-    Write-Host "- PowerShell: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
+    Write-Host "- PowerShell: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition)) $([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)"
+    $osDescription = try { [Runtime.InteropServices.RuntimeInformation]::OSDescription } catch { [Environment]::OSVersion.VersionString }
+    Write-Host "- OS: $("$osDescription".Trim())"
+    if ($isMacHost) { Write-Host "- Note: macOS support is implemented but has not been verified on a Mac; please report problems." }
     if ($null -eq $dotnetCommand)
     {
         Write-Host "- dotnet: not found"
@@ -381,7 +390,7 @@ function Get-ConfigurationHash([string]$Directory)
 {
     $names = @(".editorconfig", ".globalconfig", "Directory.Build.props", "Directory.Build.targets")
     $files = [Collections.Generic.List[string]]::new()
-    $parent = Split-Path -Parent $Directory
+    $parent = [IO.Path]::GetDirectoryName($Directory)
     while (-not [string]::IsNullOrWhiteSpace($parent))
     {
         foreach ($name in $names)
@@ -389,12 +398,10 @@ function Get-ConfigurationHash([string]$Directory)
             $candidate = Join-Path $parent $name
             if (Test-Path -LiteralPath $candidate -PathType Leaf) { $files.Add($candidate) }
         }
-        $next = Split-Path -Parent $parent
-        if ($next -eq $parent) { break }
-        $parent = $next
+        $parent = [IO.Path]::GetDirectoryName($parent)
     }
     Get-ChildItem -LiteralPath $Directory -File -Recurse -Force -ErrorAction SilentlyContinue |
-        Where-Object { ($names -contains $_.Name -or $_.Extension -eq ".globalconfig") -and $_.FullName.Substring($Directory.Length) -notmatch '\\(bin|obj|node_modules|\.git|\.vs)\\' } |
+        Where-Object { ($names -contains $_.Name -or $_.Extension -eq ".globalconfig") -and $_.FullName.Substring($Directory.Length) -notmatch '[\\/](bin|obj|node_modules|\.git|\.vs)[\\/]' } |
         ForEach-Object { $files.Add($_.FullName) }
     $text = @($files | Sort-Object -Unique | ForEach-Object { "$($_.ToLowerInvariant()):$((Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash)" }) -join "|"
     $bytes = [Text.Encoding]::UTF8.GetBytes($text)
@@ -430,13 +437,35 @@ function Invoke-FormatCheck([string]$TargetPath, [string]$WorkingDirectory)
     return [PSCustomObject]@{ Status = "failed"; Kind = "toolError"; Files = @() }
 }
 
+# Report paths are relative to the target folder and use the separator of the OS that ran the check.
+# File names compare case-insensitively on Windows and macOS (their default file systems) and exactly elsewhere.
+# On macOS the temporary folders are reached both through /var or /tmp and through /private/var or /private/tmp.
+function ConvertTo-RelativePath([string]$BasePath, [string]$Path)
+{
+    $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $baseText = [IO.Path]::GetFullPath($BasePath).TrimEnd($separators)
+    $pathText = [IO.Path]::GetFullPath($Path)
+    if ($isMacHost)
+    {
+        $baseText = $baseText -creplace '^/private(?=/(var|tmp)(/|$))', ''
+        $pathText = $pathText -creplace '^/private(?=/(var|tmp)(/|$))', ''
+    }
+    $comparison = if ($isWindowsHost -or $isMacHost) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    $baseParts = $baseText.Split($separators)
+    $pathParts = $pathText.Split($separators)
+    $common = 0
+    while ($common -lt $baseParts.Count -and $common -lt $pathParts.Count -and [string]::Equals($baseParts[$common], $pathParts[$common], $comparison)) { $common++ }
+    if ($common -eq 0) { return $Path }
+    $parts = @(@("..") * ($baseParts.Count - $common)) + @($pathParts | Select-Object -Skip $common)
+    return $parts -join [IO.Path]::DirectorySeparatorChar
+}
+
 function Get-RelativePath([string]$Path)
 {
     if ([string]::IsNullOrWhiteSpace($Path)) { return $Path }
     if ($Path -match "^file:") { $Path = ([Uri]$Path).LocalPath }
     if (-not [IO.Path]::IsPathRooted($Path)) { return $Path }
-    $rootUri = [Uri](($targetDirectory.TrimEnd('\') + '\'))
-    return [Uri]::UnescapeDataString($rootUri.MakeRelativeUri([Uri]([IO.Path]::GetFullPath($Path))).ToString()).Replace('/', '\')
+    return ConvertTo-RelativePath $targetDirectory $Path
 }
 
 # The same error arrives from the console output and from the SARIF log, and once per target framework.
@@ -590,7 +619,7 @@ function Write-Report([string[]]$BuildOutput, [string[]]$SarifPaths, $Timings, [
     }
     if (-not $IsFailureReport -and -not [string]::IsNullOrWhiteSpace($BaselinePath)) { $reportArguments.BaselinePath = $BaselinePath }
     if (-not $IsFailureReport -and $CreateBaseline) { $reportArguments.CreateBaseline = $true }
-    $result = & "$PSScriptRoot\New-CodingAgentChangeReport.ps1" @reportArguments
+    $result = & (Join-Path $PSScriptRoot "New-CodingAgentChangeReport.ps1") @reportArguments
     return $result
 }
 
@@ -610,7 +639,7 @@ try
 
     if ($ExplainEditorConfig)
     {
-        & "$PSScriptRoot\Show-CSharpRuleKeeperOptions.ps1" -OutputPath $OptionsDocumentationPath
+        & (Join-Path $PSScriptRoot "Show-CSharpRuleKeeperOptions.ps1") -OutputPath $OptionsDocumentationPath
         exit $LASTEXITCODE
     }
 
@@ -685,16 +714,16 @@ try
     $expected = New-CombinedTargets $targetPath (Join-Path $PSScriptRoot "CSharpRuleKeeper.targets") $combinedTargets
     $buildArguments = @(
         "build", $targetPath, "--configuration", $Configuration, "--no-incremental", "-nodeReuse:false",
-        "/p:CustomAfterMicrosoftCommonTargets=$combinedTargets",
-        "/p:CSharpRuleKeeperAnalyzerPath=$AnalyzerPath",
-        "/p:CSharpRuleKeeperResultsRoot=$resultsRoot",
-        "/p:RunAnalyzersDuringBuild=true",
-        "/p:RunAnalyzers=true",
-        "/p:UseSharedCompilation=false"
+        "-p:CustomAfterMicrosoftCommonTargets=$combinedTargets",
+        "-p:CSharpRuleKeeperAnalyzerPath=$AnalyzerPath",
+        "-p:CSharpRuleKeeperResultsRoot=$resultsRoot",
+        "-p:RunAnalyzersDuringBuild=true",
+        "-p:RunAnalyzers=true",
+        "-p:UseSharedCompilation=false"
     )
     if (-not [string]::IsNullOrWhiteSpace($DefineConstants))
     {
-        $buildArguments += "/p:DefineConstants=$($DefineConstants.Replace(';', '%3B'))"
+        $buildArguments += "-p:DefineConstants=$($DefineConstants.Replace(';', '%3B'))"
     }
 
     $build = Invoke-DotNet $buildArguments $targetDirectory

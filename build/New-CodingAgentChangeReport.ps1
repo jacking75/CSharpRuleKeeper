@@ -72,6 +72,49 @@ end
     $failOnRank = $severityRank[$FailOn]
     $diagnostics = [Collections.Generic.List[object]]::new()
     $targetRoot = if ($Target -and [IO.Path]::HasExtension($Target)) { Split-Path -Parent $Target } else { $Target }
+    # Windows PowerShell 5.1 runs only on Windows and has no $IsWindows; PowerShell 7 defines it on every OS.
+    $isWindowsHost = $PSVersionTable.PSEdition -ne "Core" -or $IsWindows
+    $isMacHost = $PSVersionTable.PSEdition -eq "Core" -and $IsMacOS
+    $utf8 = [Text.UTF8Encoding]::new($false)
+
+    # Same rules as the checker: relative to the target folder, in the separator of the OS that ran the check,
+    # case-insensitive on Windows and macOS, and macOS /private/var and /private/tmp equal to /var and /tmp.
+    function ConvertTo-RelativePath([string]$BasePath, [string]$Path)
+    {
+        $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+        $baseText = [IO.Path]::GetFullPath($BasePath).TrimEnd($separators)
+        $pathText = [IO.Path]::GetFullPath($Path)
+        if ($isMacHost)
+        {
+            $baseText = $baseText -creplace '^/private(?=/(var|tmp)(/|$))', ''
+            $pathText = $pathText -creplace '^/private(?=/(var|tmp)(/|$))', ''
+        }
+        $comparison = if ($isWindowsHost -or $isMacHost) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+        $baseParts = $baseText.Split($separators)
+        $pathParts = $pathText.Split($separators)
+        $common = 0
+        while ($common -lt $baseParts.Count -and $common -lt $pathParts.Count -and [string]::Equals($baseParts[$common], $pathParts[$common], $comparison)) { $common++ }
+        if ($common -eq 0) { return $Path }
+        $parts = @(@("..") * ($baseParts.Count - $common)) + @($pathParts | Select-Object -Skip $common)
+        return $parts -join [IO.Path]::DirectorySeparatorChar
+    }
+
+    # Windows PowerShell 5.1 writes ' < > & as \u0027 \u003c \u003e \u0026 and PowerShell 7 writes them as they
+    # are. Both hosts write them as they are, so the JSON text differs only in indentation.
+    function ConvertTo-PortableJson($Value, [Int32]$Depth)
+    {
+        $json = $Value | ConvertTo-Json -Depth $Depth
+        return [regex]::Replace($json, '(?<!\\)((?:\\\\)*)\\u00(27|3c|3e|26)', { param($match) $match.Groups[1].Value + [string][char][Convert]::ToInt32($match.Groups[2].Value, 16) }, [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    }
+
+    # UTF-8 without a byte order mark on every host; Set-Content -Encoding UTF8 adds one only in Windows PowerShell 5.1.
+    # A relative path is resolved against the PowerShell location, as Set-Content and Move-Item do; .NET would use
+    # the process directory.
+    function Write-TextFile([string]$Path, [string]$Text)
+    {
+        $fullPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+        [IO.File]::WriteAllText($fullPath, $Text + [Environment]::NewLine, $utf8)
+    }
 
     function ConvertTo-Severity([string]$Level)
     {
@@ -89,12 +132,7 @@ end
     {
         if ($RuleId -notmatch "^HBCS\d{3}$") { return }
         if ($Path -and $Path -match "^file:") { $Path = ([Uri]$Path).LocalPath }
-        if ($Path -and $targetRoot -and [IO.Path]::IsPathRooted($Path))
-        {
-            $rootUri = [Uri](([IO.Path]::GetFullPath($targetRoot).TrimEnd('\') + '\'))
-            $pathUri = [Uri]([IO.Path]::GetFullPath($Path))
-            $Path = [Uri]::UnescapeDataString($rootUri.MakeRelativeUri($pathUri).ToString()).Replace('/', '\')
-        }
+        if ($Path -and $targetRoot -and [IO.Path]::IsPathRooted($Path)) { $Path = ConvertTo-RelativePath $targetRoot $Path }
         $diagnostics.Add([PSCustomObject][ordered]@{
             ruleId = $RuleId
             severity = $Severity
@@ -169,9 +207,12 @@ end
     }
     $normalized = @($uniqueDiagnostics.Values | Sort-Object path, line, column, ruleId, message)
 
+    # The path is hashed with '\' separators on every OS, the form Windows has always used, so a baseline created
+    # on one OS matches the same findings on another and baselines written before this rule still match.
     function Get-Fingerprint($Diagnostic)
     {
-        $bytes = [Text.Encoding]::UTF8.GetBytes("$($Diagnostic.ruleId)|$($Diagnostic.path)|$($Diagnostic.message)")
+        $portablePath = "$($Diagnostic.path)".Replace('/', '\')
+        $bytes = [Text.Encoding]::UTF8.GetBytes("$($Diagnostic.ruleId)|$portablePath|$($Diagnostic.message)")
         return [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($bytes)).Replace("-", "").ToLowerInvariant()
     }
 
@@ -201,7 +242,7 @@ end
                 entries = @($currentCounts.Values)
             }
             $baselineTemp = "$BaselinePath.$RunId.tmp"
-            $baseline | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $baselineTemp -Encoding UTF8
+            Write-TextFile $baselineTemp (ConvertTo-PortableJson $baseline 8)
             Move-Item -LiteralPath $baselineTemp -Destination $BaselinePath -Force
             $storedCounts = @{}
             foreach ($entry in $currentCounts.Values) { $storedCounts[$entry["fingerprint"]] = $entry["count"] }
@@ -354,8 +395,8 @@ end
         }
         $reportTemp = "$OutputPath.$RunId.tmp"
         $jsonTemp = "$JsonOutputPath.$RunId.tmp"
-        $report | Set-Content -LiteralPath $reportTemp -Encoding UTF8
-        $resultObject | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $jsonTemp -Encoding UTF8
+        Write-TextFile $reportTemp ($report -join [Environment]::NewLine)
+        Write-TextFile $jsonTemp (ConvertTo-PortableJson $resultObject 12)
         Move-Item -LiteralPath $reportTemp -Destination $OutputPath -Force
         Move-Item -LiteralPath $jsonTemp -Destination $JsonOutputPath -Force
         Write-Host "Report written: $OutputPath"

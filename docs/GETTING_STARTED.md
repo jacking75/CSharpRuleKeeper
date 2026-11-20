@@ -6,12 +6,23 @@ CSharpRuleKeeper checks a solution or project without editing it. The analyzer i
 
 ## 1. Get the tool
 
-You need Windows, Windows PowerShell 5.1 (part of Windows) and the .NET SDK your target already builds with. The analyzer needs the compiler of SDK 8.0.100 or later.
+You need PowerShell and the .NET SDK your target already builds with. The analyzer needs the compiler of SDK 8.0.100 or later.
+
+| OS | PowerShell | State |
+| --- | --- | --- |
+| Windows | Windows PowerShell 5.1 (part of Windows) | Verified. |
+| Windows | PowerShell 7 (`pwsh`) | Verified with 7.7.0. |
+| Linux | PowerShell 7 (`pwsh`) | Verified with 7.7.0 on Ubuntu 24.04 under WSL2; other distributions have not been tested. |
+| macOS | PowerShell 7 (`pwsh`) | Implemented, not verified: no Mac was available. Please report problems. |
+
+The commands below are written for Windows PowerShell 5.1. For PowerShell 7 on Windows, write `pwsh` instead of `powershell`. On Linux and macOS, write `pwsh -NoProfile -File` (no `-ExecutionPolicy`), use `/` in paths, and replace `C:\tools\CSharpRuleKeeper` with your tool folder, for example `~/tools/CSharpRuleKeeper`. Sections 2 to 4 show both forms.
 
 **From source.** This works today. Building the analyzer needs a .NET 10 SDK, 10.0.400 or later (the repository's `global.json` rolls forward to later 10.0 feature bands). The checker builds it automatically, in `Release`, the first time it runs.
 
 ```powershell
 git clone https://github.com/jacking75/CSharpRuleKeeper.git C:\tools\CSharpRuleKeeper
+# Linux, macOS:
+git clone https://github.com/jacking75/CSharpRuleKeeper.git ~/tools/CSharpRuleKeeper
 ```
 
 **Release ZIP.** When a release is listed on the [Releases page](https://github.com/jacking75/CSharpRuleKeeper/releases), download `CSharpRuleKeeper-<version>.zip` and `CSharpRuleKeeper-<version>.zip.sha256`. Compare the hash, then unpack:
@@ -23,7 +34,15 @@ Expand-Archive .\CSharpRuleKeeper-1.2.0.zip -DestinationPath C:\tools
 Rename-Item C:\tools\CSharpRuleKeeper-1.2.0 CSharpRuleKeeper
 ```
 
-The ZIP holds one folder, `CSharpRuleKeeper-<version>\`, with the prebuilt analyzer (`analyzers\`), the scripts the checker and hook need (`build\`), `hooks\`, `docs\`, `config\presets\` and the sample project (`samples\SampleConsumer\`). It needs no SDK of its own. Until the first release is published, use the source path.
+On Linux and macOS:
+
+```bash
+sha256sum CSharpRuleKeeper-1.2.0.zip    # macOS: shasum -a 256 CSharpRuleKeeper-1.2.0.zip
+cat CSharpRuleKeeper-1.2.0.zip.sha256
+mkdir -p ~/tools && unzip CSharpRuleKeeper-1.2.0.zip -d ~/tools && mv ~/tools/CSharpRuleKeeper-1.2.0 ~/tools/CSharpRuleKeeper
+```
+
+The ZIP holds one folder, `CSharpRuleKeeper-<version>/`, with the prebuilt analyzer (`analyzers/`), the scripts the checker and hook need (`build/`), `hooks/`, `docs/`, `config/presets/` and the sample project (`samples/SampleConsumer/`). It needs no SDK of its own, and the same ZIP serves every OS. Until the first release is published, use the source path.
 
 These pages write the tool folder as `C:\tools\CSharpRuleKeeper`. Nothing is installed or registered: deleting the folder removes the tool.
 
@@ -33,13 +52,19 @@ These pages write the tool folder as `C:\tools\CSharpRuleKeeper`. Nothing is ins
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Doctor -Solution .\MySolution.sln
 ```
 
+```bash
+# Linux, macOS:
+pwsh -NoProfile -File ~/tools/CSharpRuleKeeper/build/Invoke-CSharpRuleKeeper.ps1 -Doctor -Solution ./MySolution.sln
+```
+
 `-Doctor` only reads. It never restores, builds or edits files. Output from a source checkout (paths and SDK list shortened):
 
 ```text
 CSharpRuleKeeper doctor
 - Tool version: 1.2.0
 - Tool root: C:\tools\CSharpRuleKeeper
-- PowerShell: 5.1.26100.9711 (Desktop)
+- PowerShell: 5.1.26100.9711 (Desktop) C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+- OS: Microsoft Windows 10.0.26300
 - dotnet: C:\Program Files\dotnet\dotnet.exe
 - Installed SDKs:
   10.0.403 [C:\Program Files\dotnet\sdk]
@@ -52,7 +77,7 @@ CSharpRuleKeeper doctor
 Doctor did not restore, build or modify any file.
 ```
 
-Exit code 2 means something must be fixed first: `NOT satisfied` (the SDK the target's `global.json` asks for is missing), `NOT compatible` (the target's SDK is older than 8.0.100), or `MISSING` (no SDK to build the analyzer from source). See [Troubleshooting](TROUBLESHOOTING.md#reading--doctor).
+The `PowerShell` line names the PowerShell that runs the tool; child processes, such as the checker started by the hook, use the same one. On macOS an extra `Note:` line says that macOS support has not been verified. Exit code 2 means something must be fixed first: `NOT satisfied` (the SDK the target's `global.json` asks for is missing), `NOT compatible` (the target's SDK is older than 8.0.100), or `MISSING` (no SDK to build the analyzer from source). See [Troubleshooting](TROUBLESHOOTING.md#reading--doctor).
 
 ## 3. Run a check
 
@@ -60,7 +85,12 @@ Exit code 2 means something must be fixed first: `NOT satisfied` (the SDK the ta
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\tools\CSharpRuleKeeper\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\MySolution.sln -OutputPath .\report.md
 ```
 
-The command has four parts: Windows PowerShell with a one-off execution policy, the script, the target (`-Solution`: a `.sln`, `.slnx`, `.csproj`, or a folder that contains exactly one of them), and the report path (`-OutputPath`). Quote the `-File` path if it contains spaces.
+```bash
+# Linux, macOS:
+pwsh -NoProfile -File ~/tools/CSharpRuleKeeper/build/Invoke-CSharpRuleKeeper.ps1 -Solution ./MySolution.sln -OutputPath ./report.md
+```
+
+The command has four parts: PowerShell (on Windows with a one-off execution policy), the script, the target (`-Solution`: a `.sln`, `.slnx`, `.csproj`, or a folder that contains exactly one of them), and the report path (`-OutputPath`). Quote the `-File` path if it contains spaces.
 
 The run writes `report.md` for people and `report.json` for tools, prints the build log, and exits with:
 
@@ -70,7 +100,7 @@ The run writes `report.md` for people and `report.json` for tools, prints the bu
 | 1 | Violations: HBCS diagnostics at or above `-FailOn`, or whitespace differences. | Fix the locations in the report and run again. |
 | 2 | The check could not run or complete. | Read `Execution errors` in the report first; the HBCS list may be incomplete. |
 
-What the run touches: the target's tracked files are not edited (unless you pass `-Fix`); its `bin` and `obj` folders are rebuilt because the build runs with `--no-incremental`; a temporary folder `%TEMP%\CSharpRuleKeeper-<run id>` is deleted at the end. Details of the report: [Report](REPORT.md).
+What the run touches: the target's tracked files are not edited (unless you pass `-Fix`); its `bin` and `obj` folders are rebuilt because the build runs with `--no-incremental`; a temporary folder `CSharpRuleKeeper-<run id>` in the system temporary folder (`%TEMP%` on Windows, `$TMPDIR` or `/tmp` on Linux and macOS) is deleted at the end. Details of the report: [Report](REPORT.md).
 
 ## 4. Practice with the sample
 
@@ -78,6 +108,11 @@ What the run touches: the target's tracked files are not edited (unless you pass
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build\Invoke-CSharpRuleKeeper.ps1 -Solution .\samples\SampleConsumer\SampleConsumer.csproj -DefineConstants DEMONSTRATE_RULES -OutputPath .\sample-practice-report.md
+```
+
+```bash
+# Linux, macOS, from ~/tools/CSharpRuleKeeper:
+pwsh -NoProfile -File ./build/Invoke-CSharpRuleKeeper.ps1 -Solution ./samples/SampleConsumer/SampleConsumer.csproj -DefineConstants DEMONSTRATE_RULES -OutputPath ./sample-practice-report.md
 ```
 
 The run is expected to fail with exit code 1. The report lists HBCS001 (`Public field 'Count' must be replaced or explicitly excepted`) and HBCS002 (`Boolean property 'Ready' must start with one of: Is, Has, Can, Should, Needs`). Change `public Int32 Count = 0;` into a property such as `public Int32 Count { get; set; }`, rename `Ready` to `IsReady`, and run the command again: it exits 0. Undo your edits to practice again (`git checkout -- samples` in a clone).
@@ -92,7 +127,7 @@ The run is expected to fail with exit code 1. The report lists HBCS001 (`Public 
 | `-FailOn` | `warning` | `error`, `warning` or `info`: the lowest severity that fails the check. Lower-severity findings are still listed. |
 | `-Fix` | off | Apply `dotnet format whitespace` instead of only verifying it. Whitespace only; nothing else is changed. |
 | `-Configuration` | `Debug` | Build configuration. |
-| `-DefineConstants` | none | Compile constants for this build, for example `DEMONSTRATE_RULES`. Quote a list in PowerShell: `-DefineConstants "ALPHA;BETA"` (an unquoted `;` ends the command). The value **replaces** the project's own constants such as `DEBUG` and `TRACE`; the SDK's framework constants (`NET`, `NET10_0`, ...) remain. |
+| `-DefineConstants` | none | Compile constants for this build, for example `DEMONSTRATE_RULES`. Quote a list: `-DefineConstants "ALPHA;BETA"` (an unquoted `;` ends the command in PowerShell and in bash). The value **replaces** the project's own constants such as `DEBUG` and `TRACE`; the SDK's framework constants (`NET`, `NET10_0`, ...) remain. |
 | `-BaselinePath` | none | Baseline file; only diagnostics that are not in it can fail the check. It must exist unless `-CreateBaseline` is given. See [baselines](REPORT.md#baselines). |
 | `-CreateBaseline` | off | Write the current diagnostics to `-BaselinePath` (required). Exits 0 when the baseline was written, or 1 if whitespace differences remain; writes nothing and exits 2 if the analysis did not complete. |
 | `-MaxDiagnostics` | 200 | 1 to 10000. Limits the findings shown in the Markdown report; the JSON always lists all of them. |

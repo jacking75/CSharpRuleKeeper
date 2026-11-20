@@ -2,7 +2,9 @@
   <!-- Imported only by Invoke-CSharpRuleKeeper.ps1 for one build; never referenced by the target project. -->
   <PropertyGroup>
     <CSharpRuleKeeperRunKey>$(MSBuildProjectName)-$(TargetFramework)-$(Configuration)-$([MSBuild]::StableStringHash('$(MSBuildProjectFullPath)'))</CSharpRuleKeeperRunKey>
-    <CSharpRuleKeeperResultFile Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">$(CSharpRuleKeeperResultsRoot)\$(CSharpRuleKeeperRunKey).sarif</CSharpRuleKeeperResultFile>
+    <!-- NormalizePath joins with the separator of the OS that runs the build, so the paths work on Linux and macOS too. -->
+    <CSharpRuleKeeperResultBase Condition="'$(CSharpRuleKeeperResultsRoot)' != ''">$([MSBuild]::NormalizePath('$(CSharpRuleKeeperResultsRoot)', '$(CSharpRuleKeeperRunKey)'))</CSharpRuleKeeperResultBase>
+    <CSharpRuleKeeperResultFile Condition="'$(CSharpRuleKeeperResultBase)' != ''">$(CSharpRuleKeeperResultBase).sarif</CSharpRuleKeeperResultFile>
     <ErrorLog Condition="'$(CSharpRuleKeeperResultFile)' != ''">$(CSharpRuleKeeperResultFile),version=2.1</ErrorLog>
     <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
     <RunAnalyzers>true</RunAnalyzers>
@@ -30,7 +32,7 @@
   <Target Name="RecordCSharpRuleKeeperStart"
           BeforeTargets="BeforeBuild"
           Condition="'$(CSharpRuleKeeperResultsRoot)' != '' And '$(Language)' == 'C#'">
-    <WriteLinesToFile File="$(CSharpRuleKeeperResultsRoot)\$(CSharpRuleKeeperRunKey).started"
+    <WriteLinesToFile File="$(CSharpRuleKeeperResultBase).started"
                       Lines="$([MSBuild]::Escape('$(MSBuildProjectFullPath)'));$([MSBuild]::Escape('$(TargetFramework)'));$([MSBuild]::Escape('$(CSharpRuleKeeperResultFile)'))"
                       Overwrite="true"
                       Encoding="utf-8" />
@@ -39,7 +41,7 @@
   <Target Name="RecordCSharpRuleKeeperAnalysis"
           AfterTargets="CoreCompile"
           Condition="'$(CSharpRuleKeeperResultsRoot)' != '' And '$(Language)' == 'C#'">
-    <WriteLinesToFile File="$(CSharpRuleKeeperResultsRoot)\$(CSharpRuleKeeperRunKey).completed"
+    <WriteLinesToFile File="$(CSharpRuleKeeperResultBase).completed"
                       Lines="completed"
                       Overwrite="true" />
   </Target>

@@ -58,7 +58,7 @@ function Update-ExternalLinks([string]$Root)
             if ($target -match '^(https?:|mailto:)') { return $match.Value }
             $resolved = [IO.Path]::GetFullPath((Join-Path $file.DirectoryName $target))
             if (Test-Path -LiteralPath $resolved) { return $match.Value }
-            $repositoryPath = $resolved.Substring($Root.Length).TrimStart('\').Replace('\', '/')
+            $repositoryPath = $resolved.Substring($Root.Length).Replace([IO.Path]::DirectorySeparatorChar, '/').TrimStart('/')
             return "$($match.Groups[1].Value)$repositoryUrl/$repositoryPath$($match.Groups[3].Value)"
         })
         if ($updated -ne $text) { [IO.File]::WriteAllText($file.FullName, $updated, [Text.UTF8Encoding]::new($false)) }
@@ -75,7 +75,7 @@ function New-ZipArchive([string]$SourceDirectory, [string]$DestinationPath)
         $baseLength = (Split-Path -Parent $SourceDirectory).Length + 1
         foreach ($file in Get-ChildItem -LiteralPath $SourceDirectory -File -Recurse -Force)
         {
-            $entryName = $file.FullName.Substring($baseLength).Replace('\', '/')
+            $entryName = $file.FullName.Substring($baseLength).Replace([IO.Path]::DirectorySeparatorChar, '/')
             $null = [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $entryName, [IO.Compression.CompressionLevel]::Optimal)
         }
     }
@@ -86,9 +86,18 @@ function New-ZipArchive([string]$SourceDirectory, [string]$DestinationPath)
     }
 }
 
+# The bundle is verified with the PowerShell that runs this script: pwsh starts pwsh, Windows PowerShell powershell.exe.
+function Get-PowerShellPath
+{
+    $path = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    if ([IO.Path]::GetFileNameWithoutExtension($path) -in @("pwsh", "powershell")) { return $path }
+    if ($PSVersionTable.PSEdition -eq "Core") { return "pwsh" }
+    return "powershell"
+}
+
 function Invoke-BundleChecker([string]$Checker, [string[]]$Arguments)
 {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $Checker @Arguments | Out-Host
+    & (Get-PowerShellPath) -NoProfile -ExecutionPolicy Bypass -File $Checker @Arguments | Out-Host
     return $LASTEXITCODE
 }
 
@@ -164,7 +173,8 @@ try
 
     # The command from docs/GETTING_STARTED.md section 4, run from the unpacked folder.
     Push-Location -LiteralPath $bundleRoot
-    try { $sampleExitCode = Invoke-BundleChecker ".\build\Invoke-CSharpRuleKeeper.ps1" @("-Solution", ".\samples\SampleConsumer\SampleConsumer.csproj", "-DefineConstants", "DEMONSTRATE_RULES", "-OutputPath", (Join-Path $verifyRoot "sample-practice-report.md")) }
+    # Join-Path writes .\build\... on Windows and ./build/... on Linux and macOS, as the documentation does.
+    try { $sampleExitCode = Invoke-BundleChecker (Join-Path "." "build\Invoke-CSharpRuleKeeper.ps1") @("-Solution", (Join-Path "." "samples\SampleConsumer\SampleConsumer.csproj"), "-DefineConstants", "DEMONSTRATE_RULES", "-OutputPath", (Join-Path $verifyRoot "sample-practice-report.md")) }
     finally { Pop-Location }
     $sample = Get-Content -LiteralPath (Join-Path $verifyRoot "sample-practice-report.json") -Raw -Encoding UTF8 | ConvertFrom-Json
     $sampleRules = @($sample.diagnostics | ForEach-Object { $_.ruleId } | Sort-Object -Unique)
